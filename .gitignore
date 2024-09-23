@@ -1,0 +1,7 @@
+# Ignored files by Git
+
+.idea/
+*.iml
+*.npy
+*.pt
+*.xml
