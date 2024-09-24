@@ -3,7 +3,7 @@ import torch.nn as nn
 
 class DenseLayer(nn.Module):
     def __init__(self, inSize, outSize, activation, device, batch_norm=False):
-        super().__init__()
+        super(DenseLayer, self).__init__()
         self.inSize = inSize
         self.outSize = outSize
         self.device = device
