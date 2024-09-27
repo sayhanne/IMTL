@@ -15,13 +15,14 @@ if __name__ == '__main__':
     parser.add_argument("-t", help="Target run file",  # target .py file
                         default=Runner)
     args = parser.parse_args()
-    models = ['b1', 'b2', 'lp', 'lpe']
-    sel = ['rand', 'rand', 'lp', 'lpe']
-    share_bb = [1, 1, 1, 1]
+    models = ['b1', 'b2', 'lp']
+    sel = ['rand', 'rand', 'lp']
+    share_bb = [0, 1, 1]
     procs = []
-    num_seeds = 1
-    seeds = np.random.randint(low=0, high=100000, size=num_seeds)
-    print(seeds)
+    num_seeds = 10
+    seeds = [5484, 98438, 99870, 46115, 96999, 19771, 67839, 15547, 15728, 99168]
+    # seeds = np.random.randint(low=0, high=100000, size=num_seeds)
+    # print(seeds)
 
     for index, model in enumerate(models):
         lock = Lock()

@@ -6,7 +6,7 @@ import torch
 from torch import nn
 
 from model.network import MTL
-from model.utils.helper import LossUtils, TaskSelectionUtils
+from model.utils.helper import LossUtils, TaskSelectionUtils, EnergyUtils
 from preprocessing.dataset import LocationPredictionDataset
 
 
@@ -31,6 +31,8 @@ class Master:
 
         # Loss helper
         self.lossHelper = None  # Set according to task count!
+        # Energy helper
+        self.energyHelper = None  # Set according to task count!
         # Task selection helper
         self.selectionHelper = None  # Set according to task count!
 
@@ -75,19 +77,24 @@ class Master:
         # Utils
         if is_train:
             self.lossHelper = LossUtils(task_count=len(task_names))
+            self.energyHelper = EnergyUtils(task_count=len(self.taskIDs))
             self.selectionHelper = TaskSelectionUtils(task_count=len(task_names), selection=self.selection,
                                                       random_seq_path=self.random_seq_path)
 
     def train_task(self, task_id):
-        error = self.model.train_mb(task_id=task_id, data_loader=self.data_loaders[task_id])
-        print("Task {}, error {}".format(task_id, error))
+        error, energy = self.model.train_mb(task_id=task_id, data_loader=self.data_loaders[task_id])
+        # print("Task {}, error {}".format(task_id, error))
         self.lossHelper.train_losses[task_id] = error
         self.lossHelper.update_task_loss(index=task_id)
+        self.energyHelper.train_energies[task_id] = energy
+        self.energyHelper.update_task_energy(index=task_id)
 
     def test_task(self, task_id):
-        test_loss = self.model.evaluate_mb(task_id=task_id, data_loader=self.test_loaders[task_id])
+        test_loss, test_energy = self.model.evaluate_mb(task_id=task_id, data_loader=self.test_loaders[task_id])
         self.lossHelper.test_losses[task_id] = test_loss
         self.lossHelper.update_test_loss(task_id)
+        self.energyHelper.test_energies[task_id] = test_energy
+        self.energyHelper.update_test_energy(task_id)
 
     def test_tasks(self):
         for t in self.taskIDs:
@@ -95,7 +102,7 @@ class Master:
 
     def initial_run(self, count=10):
 
-        print('--INITIAL RUN START---')
+        # print('--INITIAL RUN START---')
         for t in self.taskIDs:  # Train tasks 'count' times to bootstrap learning
             self.model.freeze_task(task_id=t, unfreeze=True)
             for _ in range(count):
@@ -132,7 +139,11 @@ class Master:
             if self.epochs_done < self.epochs:
                 winner = self.selectionHelper.get_winner()
 
-            # if self.epochs_done % 200 == 0:
+            if self.epochs_done % 200 == 0:
+                np.save('{}/train-energy-bar-{}-epoch-{}.npy'.format(self.save_path, self.model_name, self.epochs_done),
+                        np.asarray(self.energyHelper.get_total_energy()))
+                np.save('{}/test-energy-bar-{}-epoch-{}.npy'.format(self.save_path, self.model_name, self.epochs_done),
+                        np.asarray(self.energyHelper.get_total_energy(is_test=True)))
             #     torch.save(self.model.state_dict(), 'saved_models/{}-epoch={}-state-dict.pt'.format(self.model_name,
             #                                                                                         self.epochs_done))
 
