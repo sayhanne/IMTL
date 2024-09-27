@@ -24,6 +24,36 @@ class LossUtils:
         self.test_loss_history_plot[index].append(self.test_losses[index])
 
 
+class EnergyUtils:
+    def __init__(self, task_count):
+        self.taskCount = task_count
+        self.train_energies = [0. for _ in range(task_count)]
+        self.test_energies = [0. for _ in range(task_count)]
+        self.train_energy_history = [[] for _ in range(task_count)]
+        self.test_energy_history = [[] for _ in range(task_count)]
+        # self.train_energy_history_plot = [[] for _ in range(task_count)]
+
+    def update_task_energy(self, index, is_eval=False):
+        if not is_eval:
+            self.train_energy_history[index].append(self.train_energies[index])
+        else:
+            self.train_energy_history[index][-1] = self.train_energies[index]
+
+    def update_test_energy(self, index):
+        self.test_energy_history[index].append(self.test_energies[index])
+
+    def get_total_energy(self, is_test=False):
+        total_energy = [0. for _ in range(self.taskCount)]
+        if not is_test:
+            for t, en in enumerate(self.train_energy_history):
+                total_energy[t] = np.sum(en)
+
+        else:
+            for t, en in enumerate(self.test_energy_history):
+                total_energy[t] = np.sum(en)
+        return total_energy
+
+
 class TaskSelectionUtils:
     def __init__(self, task_count, selection, random_seq_path):
         self.current_lp = [0. for _ in range(task_count)]
@@ -60,7 +90,7 @@ class TaskSelectionUtils:
                 winner = np.random.randint(0, self.taskCount)  # Pure random
             self.selection_history.append(winner)
 
-        else: # LP based selection
+        else:  # LP based selection
             winner_index = np.argsort(self.current_lp)[::-1][0]  # Highest lp
             selected = np.random.choice(a=[winner_index, -1], p=[1 - self.e, self.e])
             if selected == -1:

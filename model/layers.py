@@ -1,3 +1,4 @@
+import numpy as np
 import torch.nn as nn
 
 
@@ -12,6 +13,7 @@ class DenseLayer(nn.Module):
             self.bn = nn.BatchNorm1d(outSize)
         self.batch_norm = batch_norm
         self.isModuleFrozen = False
+        self.activation_out = None
 
         if activation is None:
             self.activation = (lambda x: x)
@@ -25,9 +27,14 @@ class DenseLayer(nn.Module):
                 self.bn.eval()
             else:
                 self.bn.train()
-            return self.activation(self.bn(z))
+            y = self.activation(self.bn(z))
         else:
-            return self.activation(z)
+            y = self.activation(z)
+        self.activation_out = self.getTotalActivation(y.detach().cpu().numpy())
+        return y
+
+    def getTotalActivation(self, act):
+        return np.sum(np.abs(act))
 
     def freeze(self, unfreeze=False):
         if not unfreeze:  # Freeze params.
