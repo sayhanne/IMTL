@@ -1,5 +1,5 @@
 import torch.nn as nn
-from model.layers import DenseLayer
+from model.blocks import DenseLayer
 
 
 class SubNet(nn.Module):

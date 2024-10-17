@@ -6,7 +6,7 @@ from torch import Tensor
 from torch.utils.data import DataLoader
 
 from model.backbone import BackBoneNet
-from model.layers import DenseLayer
+from model.blocks import DenseLayer
 from model.subnet import SubNet
 
 

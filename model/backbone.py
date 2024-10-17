@@ -1,5 +1,5 @@
 from torch import nn
-from model.layers import DenseLayer
+from model.blocks import DenseLayer
 
 
 class BackBoneNet(nn.Module):
