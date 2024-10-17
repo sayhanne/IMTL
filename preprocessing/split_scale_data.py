@@ -1,5 +1,5 @@
 import numpy as np
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 
 def train_test_split(task):
@@ -9,10 +9,6 @@ def train_test_split(task):
     actions = np.load('../data/{}-task-actions.npy'.format(task_name), allow_pickle=True)
     post_pose = np.load('../data/{}-task-effects-pose.npy'.format(task_name), allow_pickle=True)
     post_img = np.load('../data/{}-task-effects-img.npy'.format(task_name), allow_pickle=True)
-
-    # train_indices = np.random.choice(a=range(5000), size=4500, replace=False)
-    # test_indices = np.setdiff1d(range(5000), train_indices, assume_unique=True)
-    #
 
     train_indices = np.random.choice(a=range(5000), size=4000, replace=False)
     test_indices = np.setdiff1d(range(5000), train_indices, assume_unique=True)
@@ -63,35 +59,30 @@ def train_test_split(task):
 
 
 def scale_data(task):
-    # Scale train, val, test
+    # Scale train, test
     task_name = task
-    pose_scaler = MinMaxScaler()
-    # action_scaler = MinMaxScaler()
+    state_scaler = MinMaxScaler()
+    effect_scaler = StandardScaler()
 
-    train_pose = np.load('../train_data/{}-task-states-pose.npy'.format(task_name), allow_pickle=True)
-    # train_actions = np.load('train_data/{}-task-actions.npy'.format(task_name), allow_pickle=True)
+    train_state_pose = np.load('../train_data/{}-task-states-pose.npy'.format(task_name), allow_pickle=True)
+    train_effect_pose = np.load('../train_data/{}-task-effects-pose.npy'.format(task_name), allow_pickle=True)
 
-    # val_pose = np.load('val_data/{}-task-states-pose.npy'.format(task_name), allow_pickle=True)
-    # val_actions = np.load('val_data/{}-task-actions.npy'.format(task_name), allow_pickle=True)
+    test_state_pose = np.load('../test_data/{}-task-states-pose.npy'.format(task_name), allow_pickle=True)
+    test_effect_pose = np.load('../test_data/{}-task-effects-pose.npy'.format(task_name), allow_pickle=True)
 
-    test_pose = np.load('../test_data/{}-task-states-pose.npy'.format(task_name), allow_pickle=True)
-    # test_actions = np.load('test_data/{}-task-actions.npy'.format(task_name), allow_pickle=True)
+    # input scaling
+    train_state_pose_scaled = state_scaler.fit_transform(train_state_pose)
+    test_state_pose_scaled = state_scaler.transform(test_state_pose)
 
-    scaled_pose_train = pose_scaler.fit_transform(train_pose)
-    # scaled_pose_val = pose_scaler.transform(val_pose)
-    scaled_pose_test = pose_scaler.transform(test_pose)
+    # output scaling
+    train_effect_pose_scaled = effect_scaler.fit_transform(train_effect_pose)
+    test_effect_pose_scaled = effect_scaler.transform(test_effect_pose)
 
-    # scaled_action_train = action_scaler.fit_transform(train_actions)
-    # scaled_action_val = action_scaler.transform(val_actions)
-    # scaled_action_test = action_scaler.transform(test_actions)
-
-    np.save('../train_data/{}-task-states-pose-scaled.npy'.format(task_name), scaled_pose_train)
-    # np.save('train_data/{}-task-actions-scaled.npy'.format(task_name), scaled_action_train)
-    # np.save('val_data/{}-task-states-pose-scaled.npy'.format(task_name), scaled_pose_val)
-    # np.save('val_data/{}-task-actions-scaled.npy'.format(task_name), scaled_action_val)
-    np.save('../test_data/{}-task-states-pose-scaled.npy'.format(task_name), scaled_pose_test)
-    # np.save('test_data/{}-task-actions-scaled.npy'.format(task_name), scaled_action_test)
+    np.save('../train_data/{}-task-states-pose-scaled.npy'.format(task_name), train_state_pose_scaled)
+    np.save('../test_data/{}-task-states-pose-scaled.npy'.format(task_name), test_state_pose_scaled)
+    np.save('../train_data/{}-task-effects-pose-scaled.npy'.format(task_name), train_effect_pose_scaled)
+    np.save('../test_data/{}-task-effects-pose-scaled.npy'.format(task_name), test_effect_pose_scaled)
 
 
 if __name__ == '__main__':
-    scale_data("hit")
+    scale_data("stack")
