@@ -20,7 +20,7 @@ def connect(gui=1):
 
 
 def create_object(p, obj_type, size, position, rotation=[0, 0, 0], mass=1, color=None, with_link=False,
-                  restitution=False, friction=False):
+                  dynamics: dict = None):
     collisionId = -1
     visualId = -1
 
@@ -67,31 +67,33 @@ def create_object(p, obj_type, size, position, rotation=[0, 0, 0], mass=1, color
                                    linkJointTypes=[p.JOINT_FIXED], linkJointAxis=[[0, 0, 0]])
     else:
         obj_id = p.createMultiBody(baseMass=mass, baseCollisionShapeIndex=collisionId, baseVisualShapeIndex=visualId,
-                                   basePosition=position, baseOrientation=p.getQuaternionFromEuler(rotation),)
+                                   basePosition=position, baseOrientation=p.getQuaternionFromEuler(rotation), )
 
-        if restitution:
-            p.changeDynamics(obj_id, -1, linearDamping=0, angularDamping=0,
-                             rollingFriction=0.0001, spinningFriction=0.0001, restitution=0.8,
-                             contactProcessingThreshold=0)
-        if friction:
-            # TODO: change here!!!!
-            p.changeDynamics(obj_id, -1, lateralFriction=1, restitution=0.)
+    if dynamics:
+        p.changeDynamics(obj_id, -1, **dynamics)
     return obj_id
 
 
 def create_tabletop(p):
+    wall_dynamic = {"restitution": 0.8,
+                    "lateralFriction": 0.3}
+
+    table_dynamic = {"lateralFriction": 0.7}
+
     objects = {"base": create_object(p, p.GEOM_BOX, mass=0, size=[0.15, 0.15, 0.2],
                                      position=[0., 0., 0.2], color=[0.5, 0.5, 0.5, 1.0], with_link=True),
                "table": create_object(p, p.GEOM_BOX, mass=0, size=[0.4, 0.4, 0.2],
-                                      position=[0.9, 0, 0.2], color=[0.9, 0.9, 0.9, 1.0], friction=True),
+                                      position=[0.9, 0, 0.2], color=[0.9, 0.9, 0.9, 1.0], dynamics=table_dynamic),
                "wall1": create_object(p, p.GEOM_BOX, mass=0, size=[0.4, 0.01, 0.05],
-                                      position=[0.9, -0.39, 0.45], color=[1.0, 0.6, 0.6, 1.0], restitution=True),
+                                      position=[0.9, -0.39, 0.45], color=[1.0, 0.6, 0.6, 1.0], dynamics=wall_dynamic),
                "wall2": create_object(p, p.GEOM_BOX, mass=0, size=[0.4, 0.01, 0.05],
-                                      position=[0.9, 0.39, 0.45], color=[1.0, 0.6, 0.6, 1.0], restitution=True),
+                                      position=[0.9, 0.39, 0.45], color=[1.0, 0.6, 0.6, 1.0], dynamics=wall_dynamic),
                "wall3": create_object(p, p.GEOM_BOX, mass=0, size=[0.01, 0.4, 0.05],
-                                      position=[0.9 - 0.39, 0., 0.45], color=[1.0, 0.6, 0.6, 1.0], restitution=True),
+                                      position=[0.9 - 0.39, 0., 0.45], color=[1.0, 0.6, 0.6, 1.0],
+                                      dynamics=wall_dynamic),
                "wall4": create_object(p, p.GEOM_BOX, mass=0, size=[0.01, 0.4, 0.05],
-                                      position=[0.9 + 0.39, 0., 0.45], color=[1.0, 0.6, 0.6, 1.0], restitution=True)}
+                                      position=[0.9 + 0.39, 0., 0.45], color=[1.0, 0.6, 0.6, 1.0],
+                                      dynamics=wall_dynamic)}
     # walls
     return objects
 
