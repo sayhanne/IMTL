@@ -42,8 +42,8 @@ class TableTopTask:
 
         # start collecting data set
         self.path = data_path
-        self.state_img = np.zeros((int(N), 256, 256), dtype=np.uint8)  # state (256 x 256 depth image)
-        self.effect_img = np.zeros((int(N), 256, 256), dtype=np.uint8)  # effect (256 x 256 depth image)
+        self.state_img = np.zeros((int(N), 256, 256, 3), dtype=np.uint8)  # state (256 x 256 x 3 image)
+        self.effect_img = np.zeros((int(N), 256, 256, 3), dtype=np.uint8)  # effect (256 x 256 x 3 image)
 
         self.state_pose = np.zeros((int(N), in_dim))  # start location (Cartesian location)
         self.effect_pose = np.zeros((int(N), out_dim))  # effect location (Cartesian location)
