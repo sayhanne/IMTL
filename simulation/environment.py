@@ -92,13 +92,13 @@ class GenericEnv:
         color = None
         size = [0.03, 0.03, 0.03]
         mass = 1
-        box_dynamics = {"restitution": 0.,
-                        "lateralFriction": 0.3,
-                        "rollingFriction": 0.001,
-                        "spinningFriction": 0.001,
-                        "linearDamping": 0.01,
-                        "angularDamping": 0.01,
-                        "contactProcessingThreshold": 0}
+        # box_dynamics = {"restitution": 0.,
+        #                 "lateralFriction": 0.3,
+        #                 "rollingFriction": 0.001,
+        #                 "spinningFriction": 0.001,
+        #                 "linearDamping": 0.01,
+        #                 "angularDamping": 0.01,
+        #                 "contactProcessingThreshold": 0}
 
         spherical_dynamics = {"restitution": 0.8,
                               "lateralFriction": 0.3,
@@ -147,7 +147,7 @@ class GenericEnv:
                                      position=position,
                                      rotation=orientation, color=color, mass=mass,
                                      dynamics=dynamics)
-        return obj_id
+        return obj_id, orientation
 
     def get_obj_pos(self):
         pass
@@ -155,7 +155,7 @@ class GenericEnv:
     def state(self):
         rgb, depth, seg = utils.get_image(p=self._p, height=256, width=256)
         poses = self.get_obj_pos()
-        return depth, poses
+        return rgb, poses
 
     def _step(self, count=1):
         for _ in range(count):
@@ -172,12 +172,13 @@ class PushEnv(GenericEnv):
         self.obj_id = -1  # will be updated in each iteration
         self.obj_type = -1  # will be updated in each iteration
         self.obj_index = 0  # index
+        self.obj_ori_df = [0., 0., 0.]
 
     def initialize(self):
         self.init_agent_pose(t=1)
         obj_type = self.obj_types[self.obj_index]
         self.obj_type = obj_type
-        self.obj_id = self.init_object(obj_type=obj_type)
+        self.obj_id, self.obj_ori_df = self.init_object(obj_type=obj_type)
         self._step(self.num_steps)
         self.agent.close_gripper(1, sleep=True)
         return self.encoded_ids[self.obj_type]
@@ -187,17 +188,13 @@ class PushEnv(GenericEnv):
             self._p.removeBody(self.obj_id)
             self.obj_index += 1
             self.obj_type = self.obj_types[self.obj_index]
-            self.obj_id = self.init_object(obj_type=self.obj_type)
+            self.obj_id, self.obj_ori_df = self.init_object(obj_type=self.obj_type)
         else:
-            if self.obj_type == 8 or self.obj_type == 10:
-                orientation = [np.pi / 2, 0, 0]  # horizontal placement
-            else:
-                orientation = [0., 0., 0.]
             self._p.resetBasePositionAndOrientation(self.obj_id,
                                                     [np.random.uniform(self.x_range[0], self.x_range[1], size=1),
                                                      np.random.uniform(self.y_range[0], self.y_range[1], size=1),
                                                      self.z],
-                                                    self._p.getQuaternionFromEuler(orientation))
+                                                    self._p.getQuaternionFromEuler(self.obj_ori_df))
         self.agent._waitsleep(0.5, sleep=sleep)
         return self.encoded_ids[self.obj_type]
 
@@ -210,8 +207,10 @@ class PushEnv(GenericEnv):
         return list(pos), list(ori)
 
     def change_ori_action(self, obj_type, pos, action):
-        if obj_type == 8 or self.obj_type == 10:
+        if obj_type == 8:
             orientation = [np.pi / 2, 0, math.radians(action)]
+        elif self.obj_type == 10:
+            orientation = [0, np.pi / 2, math.radians(action)]
         else:
             orientation = [np.pi, 0., math.radians(action)]
         self._p.resetBasePositionAndOrientation(self.obj_id,
@@ -296,6 +295,8 @@ class CollisionEnv(GenericEnv):
         # Two objects in the environment
         self.target_id = -1
         self.obj_id = -1
+        self.obj_ori_df = [0., 0., 0.]
+        self.target_ori_df = [0., 0., 0.]
 
         self.target_type = -1
         self.obj_type = -1
@@ -310,7 +311,7 @@ class CollisionEnv(GenericEnv):
         obj_type = self.obj_types[self.obj_index]  # moving object
         self.target_type = target_type
         self.obj_type = obj_type
-        self.target_id = self.init_object(obj_type=target_type)
+        self.target_id, self.target_ori_df = self.init_object(obj_type=target_type)
         self._step(self.num_steps)
         self.agent.close_gripper(1, sleep=True)
         return np.hstack((self.encoded_ids[self.target_type], self.encoded_ids[self.obj_type]))
@@ -320,7 +321,7 @@ class CollisionEnv(GenericEnv):
             self._p.removeBody(self.target_id)
             self.target_index += 1
             self.target_type = self.obj_types[self.target_index]
-            self.target_id = self.init_object(obj_type=self.target_type)
+            self.target_id, self.target_ori_df = self.init_object(obj_type=self.target_type)
 
             self._p.removeBody(self.obj_id)
             self.obj_index = 0
@@ -332,15 +333,11 @@ class CollisionEnv(GenericEnv):
                 self.obj_type = self.obj_types[self.obj_index]
 
             self._p.removeBody(self.obj_id)
-            if self.target_type == 8 or self.target_type == 10:
-                orientation = [np.pi / 2, 0, 0]  # horizontal placement
-            else:
-                orientation = [0., 0., 0.]
             self._p.resetBasePositionAndOrientation(self.target_id,
                                                     [np.random.uniform(self.x_range[0], self.x_range[1], size=1),
                                                      np.random.uniform(self.y_range[0], self.y_range[1], size=1),
                                                      self.z],
-                                                    self._p.getQuaternionFromEuler(orientation))
+                                                    self._p.getQuaternionFromEuler(self.target_ori_df))
 
         self.agent._waitsleep(0.5, sleep=sleep)
         return np.hstack((self.encoded_ids[self.target_type], self.encoded_ids[self.obj_type]))
@@ -352,8 +349,10 @@ class CollisionEnv(GenericEnv):
         return np.hstack((np.asarray(target_pos), np.asarray(obj_pos)))
 
     def change_ori_action(self, obj_type, pos, action):
-        if obj_type == 8 or self.obj_type == 10:
+        if obj_type == 8:
             orientation = [np.pi / 2, 0, math.radians(action)]
+        elif self.obj_type == 10:
+            orientation = [0, np.pi / 2, math.radians(action)]
         else:
             orientation = [np.pi, 0., math.radians(action)]
         self._p.resetBasePositionAndOrientation(self.obj_id,
@@ -370,7 +369,7 @@ class CollisionEnv(GenericEnv):
         calc_pos[0] = target_pos[0] - obj_dist * math.sin(math.radians(action - 90)) * 0.01
         calc_pos[1] = target_pos[1] + obj_dist * math.cos(math.radians(action - 90)) * 0.01
         calc_pos[2] = self.z
-        self.obj_id = self.init_object(obj_type=self.obj_type, position=calc_pos)
+        self.obj_id, self.obj_ori_df = self.init_object(obj_type=self.obj_type, position=calc_pos)
         self._step(self.num_steps)
         img_pre, pos_pre = self.state()
 
@@ -435,6 +434,9 @@ class StackEnv(GenericEnv):
         self.target_id = -1
         self.obj_id = -1
 
+        self.obj_ori_df = [0., 0., 0.]
+        self.target_ori_df = [0., 0., 0.]
+
         self.target_type = -1
         self.obj_type = -1
 
@@ -451,27 +453,20 @@ class StackEnv(GenericEnv):
         obj_type = self.obj_types[self.obj_index]  # moving object
         self.target_type = target_type
         self.obj_type = obj_type
-        self.target_id = self.init_object(obj_type=target_type)
-        self.obj_id = self.init_object(obj_type=obj_type)
-        target_orientation = [0., 0., 0.]
-        obj_orientation = [0., 0., 0.]
+        self.target_id, self.target_ori_df = self.init_object(obj_type=target_type)
+        self.obj_id, self.obj_ori_df = self.init_object(obj_type=obj_type)
 
         while True:  # check collision
             contacts = self._p.getClosestPoints(self.target_id, self.obj_id, distance=0.05)
             # If there are no collisions, break the loop
             if len(contacts) == 0:
                 break
-            self._p.resetBasePositionAndOrientation(self.target_id,
-                                                    [np.random.uniform(self.x_range[0], self.x_range[1], size=1),
-                                                     np.random.uniform(self.y_range[0], self.y_range[1], size=1),
-                                                     self.z],
-                                                    self._p.getQuaternionFromEuler(target_orientation))
 
             self._p.resetBasePositionAndOrientation(self.obj_id,
                                                     [np.random.uniform(self.x_range[0], self.x_range[1], size=1),
                                                      np.random.uniform(self.y_range[0], self.y_range[1], size=1),
                                                      self.z],
-                                                    self._p.getQuaternionFromEuler(obj_orientation))
+                                                    self._p.getQuaternionFromEuler(self.obj_ori_df))
 
         self._step(self.num_steps)
         self.agent.open_gripper(1, sleep=True)
@@ -482,74 +477,51 @@ class StackEnv(GenericEnv):
             self._p.removeBody(self.target_id)
             self.target_index += 1
             self.target_type = self.obj_types[self.target_index]
-            self.target_id = self.init_object(obj_type=self.target_type)
+            self.target_id, self.target_ori_df = self.init_object(obj_type=self.target_type)
 
             self._p.removeBody(self.obj_id)
             self.obj_index = 0
             self.obj_type = self.obj_types[self.obj_index]
-            self.obj_id = self.init_object(obj_type=self.obj_type)
-
-            target_orientation = [0., 0., 0.]
-            obj_orientation = [0., 0., 0.]
-
-            while True:  # check both of them
-                self._p.resetBasePositionAndOrientation(self.target_id,
-                                                        [np.random.uniform(self.x_range[0], self.x_range[1], size=1),
-                                                         np.random.uniform(self.y_range[0], self.y_range[1], size=1),
-                                                         self.z],
-                                                        self._p.getQuaternionFromEuler(target_orientation))
-
-                self._p.resetBasePositionAndOrientation(self.obj_id,
-                                                        [np.random.uniform(self.x_range[0], self.x_range[1], size=1),
-                                                         np.random.uniform(self.y_range[0], self.y_range[1], size=1),
-                                                         self.z],
-                                                        self._p.getQuaternionFromEuler(obj_orientation))
-
-                contacts = self._p.getClosestPoints(self.target_id, self.obj_id, distance=0.05)
-                # If there are no collisions, break the loop
-                if len(contacts) == 0:
-                    break
+            self.obj_id, self.obj_ori_df = self.init_object(obj_type=self.obj_type)
 
         elif changeType:
             self._p.removeBody(self.obj_id)
             self.obj_index += 1
             self.obj_type = self.obj_types[self.obj_index]
-            self.obj_id = self.init_object(obj_type=self.obj_type)
-            target_orientation = [0., 0., 0.]
+            self.obj_id, self.obj_ori_df = self.init_object(obj_type=self.obj_type)
 
-            while True:  # check only target
-                self._p.resetBasePositionAndOrientation(self.target_id,
-                                                        [np.random.uniform(self.x_range[0], self.x_range[1], size=1),
-                                                         np.random.uniform(self.y_range[0], self.y_range[1], size=1),
-                                                         self.z],
-                                                        self._p.getQuaternionFromEuler(target_orientation))
+            # do not change target type but change position
+            self._p.resetBasePositionAndOrientation(self.target_id,
+                                                    [np.random.uniform(self.x_range[0], self.x_range[1], size=1),
+                                                     np.random.uniform(self.y_range[0], self.y_range[1], size=1),
+                                                     self.z],
+                                                    self._p.getQuaternionFromEuler(self.target_ori_df))
 
-                contacts = self._p.getClosestPoints(self.target_id, self.obj_id, distance=0.05)
-                # If there are no collisions, break the loop
-                if len(contacts) == 0:
-                    break
+        else:       # new random positions
+            self._p.resetBasePositionAndOrientation(self.target_id,
+                                                    [np.random.uniform(self.x_range[0], self.x_range[1], size=1),
+                                                     np.random.uniform(self.y_range[0], self.y_range[1], size=1),
+                                                     self.z],
+                                                    self._p.getQuaternionFromEuler(self.target_ori_df))
 
-        else:
-            target_orientation = [0., 0., 0.]
-            obj_orientation = [0., 0., 0.]
+            self._p.resetBasePositionAndOrientation(self.obj_id,
+                                                    [np.random.uniform(self.x_range[0], self.x_range[1], size=1),
+                                                     np.random.uniform(self.y_range[0], self.y_range[1], size=1),
+                                                     self.z],
+                                                    self._p.getQuaternionFromEuler(self.obj_ori_df))
 
-            while True:  # check both of them
-                self._p.resetBasePositionAndOrientation(self.target_id,
-                                                        [np.random.uniform(self.x_range[0], self.x_range[1], size=1),
-                                                         np.random.uniform(self.y_range[0], self.y_range[1], size=1),
-                                                         self.z],
-                                                        self._p.getQuaternionFromEuler(target_orientation))
+        while True:
+            contacts = self._p.getClosestPoints(self.target_id, self.obj_id, distance=0.05)
+            # If there are no collisions, break the loop
+            if len(contacts) == 0:
+                break
 
-                self._p.resetBasePositionAndOrientation(self.obj_id,
-                                                        [np.random.uniform(self.x_range[0], self.x_range[1], size=1),
-                                                         np.random.uniform(self.y_range[0], self.y_range[1], size=1),
-                                                         self.z],
-                                                        self._p.getQuaternionFromEuler(obj_orientation))
+            self._p.resetBasePositionAndOrientation(self.obj_id,
+                                                    [np.random.uniform(self.x_range[0], self.x_range[1], size=1),
+                                                     np.random.uniform(self.y_range[0], self.y_range[1], size=1),
+                                                     self.z],
+                                                    self._p.getQuaternionFromEuler(self.obj_ori_df))
 
-                contacts = self._p.getClosestPoints(self.target_id, self.obj_id, distance=0.05)
-                # If there are no collisions, break the loop
-                if len(contacts) == 0:
-                    break
 
         self.agent._waitsleep(0.5, sleep=sleep)
         return np.hstack((self.encoded_ids[self.target_type], self.encoded_ids[self.obj_type]))
