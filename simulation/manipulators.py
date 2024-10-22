@@ -66,13 +66,12 @@ class Manipulator:
         self.set_joint_position(target_joints[:-2], t=t, sleep=sleep, traj=traj)
 
     def move_in_cartesian(self, position, orientation, t=1.0, sleep=False, ignore_force=False):
-        N = int(t * 240
-                )
+        N = int(t * 240)
 
         current_position, current_orientation = self.get_tip_pose()
 
-        position_traj = np.linspace(current_position, position, N+1)[1:]
-        orientation_traj = np.linspace(current_orientation, orientation, N+1)[1:]
+        position_traj = np.linspace(current_position, position, N + 1)[1:]
+        orientation_traj = np.linspace(current_orientation, orientation, N + 1)[1:]
         running_force_feedback = np.zeros(8, dtype=np.float32)
         for i, p_i in enumerate(position_traj):
             target_joints = self._p.calculateInverseKinematics(
@@ -80,21 +79,19 @@ class Manipulator:
                 endEffectorLinkIndex=self.ik_idx,
                 targetPosition=p_i,
                 targetOrientation=orientation_traj[i])
-            self.set_joint_position(target_joints[:-2], t=1/240
-                                    , sleep=sleep, traj=False)
+            self.set_joint_position(target_joints[:-2], t=1 / 240, sleep=sleep)
             force_feedback = np.array(self.get_joint_forces())
             running_force_feedback = 0.9 * running_force_feedback + 0.1 * force_feedback
             if not ignore_force:
                 if running_force_feedback[5] < self.force_stop_threshold:
-                    # print("="*240)
-                    for j in range(N//20):
+                    # print("="*100)
+                    for j in range(N // 20):
                         target_joints = self._p.calculateInverseKinematics(
                             bodyUniqueId=self.id,
                             endEffectorLinkIndex=self.ik_idx,
-                            targetPosition=position_traj[i-j],
+                            targetPosition=position_traj[i - j],
                             targetOrientation=orientation)
-                        self.set_joint_position(target_joints[:-2], t=1/240
-                                                , sleep=sleep)
+                        self.set_joint_position(target_joints[:-2], t=1 / 240, sleep=sleep)
                         force_feedback = np.array(self.get_joint_forces())
                     break
 
@@ -187,7 +184,7 @@ class Manipulator:
             jointIndices=self.joints[-2:],
             controlMode=self._p.POSITION_CONTROL,
             targetPositions=target_position,
-            forces=[15, 15])
+            forces=[20, 20])
         self._waitsleep(t, sleep)
 
     # TODO: make this only joint position, joint velocity etc.
