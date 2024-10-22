@@ -54,9 +54,9 @@ class GenericEnv:
         self._p.resetSimulation()
         self._p.configureDebugVisualizer(self._p.COV_ENABLE_GUI, 0)
         self._p.configureDebugVisualizer(self._p.COV_ENABLE_SHADOWS, 0)
-        self._p.setPhysicsEngineParameter(restitutionVelocityThreshold=0, warmStartingFactor=0, useSplitImpulse=True,
-                                          splitImpulsePenetrationThreshold=0, contactSlop=0)
-        self._p.setPhysicsEngineParameter(enableConeFriction=False)
+        # self._p.setPhysicsEngineParameter(restitutionVelocityThreshold=0, warmStartingFactor=0, useSplitImpulse=True,
+        #                                   splitImpulsePenetrationThreshold=0, contactSlop=0)
+        # self._p.setPhysicsEngineParameter(enableConeFriction=False)
         self._p.setAdditionalSearchPath(pybullet_data.getDataPath())
         self._p.setGravity(0, 0, -9.807)
         self.plane_id = self._p.loadURDF("plane.urdf")
@@ -89,51 +89,64 @@ class GenericEnv:
 
         if not orientation:
             orientation = [0., 0., 0.]
-        restitution = True
-        friction = False
         color = None
         size = [0.03, 0.03, 0.03]
         mass = 1
+        box_dynamics = {"restitution": 0.,
+                        "lateralFriction": 0.3,
+                        "rollingFriction": 0.001,
+                        "spinningFriction": 0.001,
+                        "linearDamping": 0.01,
+                        "angularDamping": 0.01,
+                        "contactProcessingThreshold": 0}
+
+        spherical_dynamics = {"restitution": 0.8,
+                              "lateralFriction": 0.3,
+                              "rollingFriction": 0.0001,
+                              "spinningFriction": 0.0001,
+                              "linearDamping": 0.01,
+                              "angularDamping": 0.01,
+                              "contactProcessingThreshold": 0}
+
+        dynamics = None
 
         if obj_type == self._p.GEOM_SPHERE:  # 2
             color = [0.8, 0., 0.8, 1.]  # purple
-
-        elif obj_type == self._p.GEOM_BOX:  # 3
-            color = [0., 0.8, 0., 1.]  # green
-            restitution = False
-            friction = True
+            dynamics = spherical_dynamics
 
         elif obj_type == self._p.GEOM_CYLINDER:  # 4
             size = [0.03, 0.09]
             color = [0.8, 0., 0., 1.]  # red
-            restitution = False
-            friction = True
+            dynamics = spherical_dynamics
 
         elif obj_type == 8:  # horizontal cylinder (rollable)
             obj_type = self._p.GEOM_CYLINDER
             size = [0.03, 0.09]
             color = [0.8, 0.8, 0., 1.]  # yellow
             orientation = [np.pi / 2, 0, 0]
+            dynamics = spherical_dynamics
+
+        elif obj_type == self._p.GEOM_BOX:  # 3
+            color = [0., 0.8, 0., 1.]  # green
+            # dynamics = box_dynamics
 
         elif obj_type == 9:  # vertical square prism
             obj_type = self._p.GEOM_BOX
             size = [0.03, 0.03, 0.06]
             color = [0., 0.8, 0.8, 1.]  # cyan
-            restitution = False
-            friction = True
+            # dynamics = box_dynamics
 
         elif obj_type == 10:  # horizontal square prism
             obj_type = self._p.GEOM_BOX
             size = [0.03, 0.03, 0.06]
             color = [0., 0., 0.8, 1.]  # blue
             orientation = [0, np.pi / 2, 0]
-            restitution = False
-            friction = True
+            # dynamics = box_dynamics
 
         obj_id = utils.create_object(p=self._p, obj_type=obj_type, size=size,
                                      position=position,
                                      rotation=orientation, color=color, mass=mass,
-                                     restitution=restitution, friction=friction)
+                                     dynamics=dynamics)
         return obj_id
 
     def get_obj_pos(self):
@@ -205,7 +218,7 @@ class PushEnv(GenericEnv):
                                                 pos,
                                                 self._p.getQuaternionFromEuler(orientation))
 
-    def step(self, action, sleep=False, margin=0., dist_before=10, distance_after=5, contact_time=0.3):
+    def step(self, action, sleep=False, margin=0., dist_before=10, distance_after=5, contact_time=0.2):
         obj_pos = self.get_obj_pos()
         """
         change ori if the contact surface is not spherical
@@ -264,7 +277,7 @@ class HitEnv(PushEnv):
     def __init__(self, gui=0, seed=None):
         super(HitEnv, self).__init__(gui=gui, seed=seed)
 
-    def step(self, action, sleep=False, margin=0.02, dist_before=10, distance_after=5, contact_time=0.05):
+    def step(self, action, sleep=False, margin=0.02, dist_before=10, distance_after=5, contact_time=0.1):
         return super().step(action, sleep=sleep, margin=margin, contact_time=contact_time)
 
 
@@ -444,7 +457,7 @@ class StackEnv(GenericEnv):
         obj_orientation = [0., 0., 0.]
 
         while True:  # check collision
-            contacts = self._p.getClosestPoints(self.target_id, self.obj_id, distance=0.0)
+            contacts = self._p.getClosestPoints(self.target_id, self.obj_id, distance=0.05)
             # If there are no collisions, break the loop
             if len(contacts) == 0:
                 break
@@ -492,7 +505,7 @@ class StackEnv(GenericEnv):
                                                          self.z],
                                                         self._p.getQuaternionFromEuler(obj_orientation))
 
-                contacts = self._p.getClosestPoints(self.target_id, self.obj_id, distance=0.0)
+                contacts = self._p.getClosestPoints(self.target_id, self.obj_id, distance=0.05)
                 # If there are no collisions, break the loop
                 if len(contacts) == 0:
                     break
@@ -511,7 +524,7 @@ class StackEnv(GenericEnv):
                                                          self.z],
                                                         self._p.getQuaternionFromEuler(target_orientation))
 
-                contacts = self._p.getClosestPoints(self.target_id, self.obj_id, distance=0.0)
+                contacts = self._p.getClosestPoints(self.target_id, self.obj_id, distance=0.05)
                 # If there are no collisions, break the loop
                 if len(contacts) == 0:
                     break
@@ -533,7 +546,7 @@ class StackEnv(GenericEnv):
                                                          self.z],
                                                         self._p.getQuaternionFromEuler(obj_orientation))
 
-                contacts = self._p.getClosestPoints(self.target_id, self.obj_id, distance=0.0)
+                contacts = self._p.getClosestPoints(self.target_id, self.obj_id, distance=0.05)
                 # If there are no collisions, break the loop
                 if len(contacts) == 0:
                     break
@@ -547,25 +560,18 @@ class StackEnv(GenericEnv):
         target_pos, obj_pos = list(target_pos), list(obj_pos)
         return np.hstack((np.asarray(target_pos), np.asarray(obj_pos)))
 
-    def step(self, sleep=False):
+    def step(self, action, sleep=False):
         img_pre, pos_pre = self.state()
         obj_locs = self.get_obj_pos()
-        grap_obj_loc = obj_locs[:3]
-        target_obj_loc = obj_locs[3:]
+        grap_obj_loc = obj_locs[3:]
+        target_obj_loc = obj_locs[:3]
 
-        # use these if you want to ensure grapping
-        # euler_rot = self._p.getEulerFromQuaternion(quat)
-        # quat = self._p.getQuaternionFromEuler([np.pi,0.0,euler_rot[0] + np.pi/2])
+        _, obj_quat = self._p.getBasePositionAndOrientation(self.obj_id)
+        grap_euler1 = self._p.getEulerFromQuaternion(obj_quat)
+        # release_euler2 = [np.pi, 0, 0]
 
-        approach_angle1 = [np.pi, 0, 0]
-        # approach_angle2 = [np.pi, 0, 0]
-        # if grap_angle:
-        #     approach_angle1 = [np.pi, 0, np.pi / 2]
-
-        approach_angle2 = [np.pi, 0, 0]
-        # approach_angle2 = [np.pi, 0, action]
-        quat1 = self._p.getQuaternionFromEuler(approach_angle1)
-        quat2 = self._p.getQuaternionFromEuler(approach_angle2)
+        quat1 = self._p.quat = self._p.getQuaternionFromEuler([np.pi, 0., grap_euler1[0]])
+        # quat2 = self._p.getQuaternionFromEuler(release_euler2)
         grap_obj_loc[2] -= 0.01
         target_obj_loc[2] -= 0.01
 
@@ -581,12 +587,12 @@ class StackEnv(GenericEnv):
         self.agent.close_gripper(t=0.1, sleep=sleep)
         self.agent.move_in_cartesian(up_pos_1, orientation=quat1, t=self.traj_t, sleep=sleep)
 
-        self.agent.move_in_cartesian(up_pos_1, orientation=quat2, t=self.traj_t, sleep=sleep)
-        self.agent.move_in_cartesian(up_pos_2, orientation=quat2, t=self.traj_t, sleep=sleep)
+        self.agent.move_in_cartesian(up_pos_1, orientation=quat1, t=self.traj_t, sleep=sleep)
+        self.agent.move_in_cartesian(up_pos_2, orientation=quat1, t=self.traj_t, sleep=sleep)
 
-        self.agent.move_in_cartesian(target_obj_loc, orientation=quat2, t=self.traj_t, sleep=sleep)
+        self.agent.move_in_cartesian(target_obj_loc, orientation=quat1, t=self.traj_t, sleep=sleep)
         self.agent.open_gripper(t=0.1, sleep=sleep)
-        self.agent.move_in_cartesian(up_pos_2, orientation=quat2, t=self.traj_t, sleep=sleep)
+        self.agent.move_in_cartesian(up_pos_2, orientation=quat1, t=self.traj_t, sleep=sleep)
 
         self.init_agent_pose(0.25, sleep=sleep)
         self.agent._waitsleep(1, sleep=sleep)
