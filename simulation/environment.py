@@ -124,6 +124,9 @@ class GenericEnv:
             size = [0.03, 0.09]
             color = [0.8, 0.8, 0., 1.]  # yellow
             orientation = [np.pi / 2, 0, 0]
+            # prevent rolling on its own
+            spherical_dynamics["rollingFriction"] = 0.00015
+            spherical_dynamics["spinningFriction"] = 0.00015
             dynamics = spherical_dynamics
 
         elif obj_type == self._p.GEOM_BOX:  # 3
@@ -206,13 +209,8 @@ class PushEnv(GenericEnv):
         pos, ori = self._p.getBasePositionAndOrientation(self.obj_id)
         return list(pos), list(ori)
 
-    def change_ori_action(self, obj_type, pos, action):
-        if obj_type == 8:
-            orientation = [np.pi / 2, 0, math.radians(action)]
-        elif self.obj_type == 10:
-            orientation = [0, np.pi / 2, math.radians(action)]
-        else:
-            orientation = [np.pi, 0., math.radians(action)]
+    def change_ori_action(self, pos, action):
+        orientation = [self.obj_ori_df[0], self.obj_ori_df[1], math.radians(action)]
         self._p.resetBasePositionAndOrientation(self.obj_id,
                                                 pos,
                                                 self._p.getQuaternionFromEuler(orientation))
@@ -223,7 +221,7 @@ class PushEnv(GenericEnv):
         change ori if the contact surface is not spherical
         """
         if self.obj_type != self._p.GEOM_SPHERE and self.obj_type != self._p.GEOM_CYLINDER:
-            self.change_ori_action(self.obj_type, obj_pos, action)
+            self.change_ori_action(obj_pos, action)
 
         if self.obj_type == 9:  # vertical prism object
             if type(self) is PushEnv:
@@ -348,13 +346,8 @@ class CollisionEnv(GenericEnv):
         target_pos, obj_pos = list(target_pos), list(obj_pos)
         return np.hstack((np.asarray(target_pos), np.asarray(obj_pos)))
 
-    def change_ori_action(self, obj_type, pos, action):
-        if obj_type == 8:
-            orientation = [np.pi / 2, 0, math.radians(action)]
-        elif self.obj_type == 10:
-            orientation = [0, np.pi / 2, math.radians(action)]
-        else:
-            orientation = [np.pi, 0., math.radians(action)]
+    def change_ori_action(self, pos, action):
+        orientation = [self.obj_ori_df[0], self.obj_ori_df[1], math.radians(action)]
         self._p.resetBasePositionAndOrientation(self.obj_id,
                                                 pos,
                                                 self._p.getQuaternionFromEuler(orientation))
@@ -380,7 +373,7 @@ class CollisionEnv(GenericEnv):
         change ori if the contact surface is not spherical
         """
         if self.obj_type != self._p.GEOM_SPHERE and self.obj_type != self._p.GEOM_CYLINDER:
-            self.change_ori_action(self.obj_type, obj_pos, action)
+            self.change_ori_action(obj_pos, action)
 
         if self.obj_type == 9:  # vertical prism object
             margin = 0.02
