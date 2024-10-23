@@ -78,7 +78,7 @@ def create_tabletop(p):
     wall_dynamic = {"restitution": 0.8,
                     "lateralFriction": 0.3}
 
-    table_dynamic = {"lateralFriction": 0.7}
+    table_dynamic = {"lateralFriction": 0.6}
 
     objects = {"base": create_object(p, p.GEOM_BOX, mass=0, size=[0.15, 0.15, 0.2],
                                      position=[0., 0., 0.2], color=[0.5, 0.5, 0.5, 1.0], with_link=True),
