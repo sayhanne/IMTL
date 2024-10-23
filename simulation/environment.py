@@ -121,10 +121,10 @@ class GenericEnv:
             size = [0.03, 0.09]
             color = [0.8, 0.8, 0., 1.]  # yellow
             if not orientation:
-                orientation = [0, np.pi / 2, 0]
+                orientation = [np.pi / 2, 0, 0]
             # prevent rolling on its own
-            spherical_dynamics["rollingFriction"] = 0.00015
-            spherical_dynamics["spinningFriction"] = 0.00015
+            spherical_dynamics["rollingFriction"] = 0.0002
+            spherical_dynamics["spinningFriction"] = 0.0002
             dynamics = spherical_dynamics
 
         elif obj_type == self._p.GEOM_BOX:  # 3
@@ -142,7 +142,7 @@ class GenericEnv:
             size = [0.03, 0.03, 0.06]
             color = [0., 0., 0.8, 1.]  # blue
             if not orientation:
-                orientation = [0, np.pi / 2, 0]
+                orientation = [np.pi / 2, 0, 0]
             # dynamics = box_dynamics
 
         if not orientation:
@@ -203,7 +203,7 @@ class PushEnv(GenericEnv):
 
     def get_obj_info(self):
         pos, ori = self._p.getBasePositionAndOrientation(self.obj_id)
-        return {'object': np.hstack((list(pos), list(ori), [self.obj_type]))}
+        return {'object': np.hstack((list(pos), list(self._p.getEulerFromQuaternion(ori)), self.encoded_ids[self.obj_type]))}
 
     def change_ori_angle(self, pos, angle):
         orientation = [self.obj_ori_df[0], self.obj_ori_df[1], math.radians(angle)]
@@ -212,8 +212,8 @@ class PushEnv(GenericEnv):
                                                 self._p.getQuaternionFromEuler(orientation))
 
     def step(self, angle, sleep=False, margin=0., dist_before=10, distance_after=5, contact_time=0.2):
-        obj_pose = self.get_obj_info()['object']
-        obj_loc = obj_pose[:3]
+        obj_info = self.get_obj_info()['object']
+        obj_loc = obj_info[:3]
 
         """
         change ori if the contact surface is not spherical
@@ -228,6 +228,7 @@ class PushEnv(GenericEnv):
                 margin *= 2
 
         img_pre, state_pre = self.state()
+        state_pre = state_pre['object']     # get only value
 
         pos = [0., 0., 0.]
         pos[0] = obj_loc[0] - dist_before * math.sin(math.radians(angle - 90)) * 0.01
@@ -254,7 +255,9 @@ class PushEnv(GenericEnv):
         self.init_agent_pose(t=0.25, sleep=sleep)
         self.agent._waitsleep(1, sleep=sleep)
         img_post, state_post = self.state()
-        return [math.sin(angle), math.cos(angle)], (img_pre, state_pre), (img_post, state_post)
+        state_post = state_post['object']     # get only value
+
+        return [math.sin(math.radians(angle)), math.cos(math.radians(angle))], (img_pre, state_pre), (img_post, state_post)
 
     def close(self):
         self._p.removeBody(self.agent.id)
@@ -296,7 +299,7 @@ class StackEnv(GenericEnv):
         y_ori = 0.
         z_ori = np.random.uniform(0., np.pi)
         if o_type == 8 or o_type == 10:  # horizontal objects
-            y_ori = np.pi / 2
+            x_ori = np.pi / 2
 
         orientation = [x_ori, y_ori, z_ori]
         return orientation      # euler
@@ -385,18 +388,20 @@ class StackEnv(GenericEnv):
     def get_obj_info(self):
         target_pos, target_ori = self._p.getBasePositionAndOrientation(self.target_id)
         obj_pos, obj_ori = self._p.getBasePositionAndOrientation(self.obj_id)
-        return {'target': np.hstack((list(target_pos), list(target_ori), [self.target_type])),
-                'object': np.hstack((list(obj_pos), list(obj_ori), [self.obj_type]))}
+        return {'target': np.hstack((list(target_pos), list(self._p.getEulerFromQuaternion(target_ori)), self.encoded_ids[self.target_type])),
+                'object': np.hstack((list(obj_pos), list(self._p.getEulerFromQuaternion(obj_ori)), self.encoded_ids[self.obj_type]))}
 
-    def step(self, action, sleep=False):
+    def step(self, angle, sleep=False):
         img_pre, state_pre = self.state()
 
         grap_obj_loc = state_pre['object'][:3]
-        grap_ori_quat = state_pre['object'][3:]
+        grap_ori_euler = state_pre['object'][3:6]
         target_obj_loc = state_pre['target'][:3]
 
-        grap_ori_euler = self._p.getEulerFromQuaternion(grap_ori_quat)
-        quat1 = self._p.getQuaternionFromEuler([np.pi, 0., grap_ori_euler[2] - np.pi / 2])
+        state_pre = np.hstack((state_pre['target'], state_pre['object']))   # get only value
+
+        z_angle = math.degrees(grap_ori_euler[2])
+        quat1 = self._p.getQuaternionFromEuler([np.pi, 0., grap_ori_euler[2] - np.pi/2])
         grap_obj_loc[2] -= 0.01
         target_obj_loc[2] -= 0.01
 
@@ -422,9 +427,10 @@ class StackEnv(GenericEnv):
         self.init_agent_pose(0.25, sleep=sleep)
         self.agent._waitsleep(1, sleep=sleep)
         img_post, state_post = self.state()
+        state_post = np.hstack((state_post['target'], state_post['object']))   # get only value
 
         return [math.sin(grap_ori_euler[2]), math.cos(grap_ori_euler[2])], (img_pre, state_pre), (img_post, state_post)
-        # sin and cosine of object's roll degree (z) as action
+        # sin and cosine of object's roll (in radian) as action
 
     def close(self):
         self._p.removeBody(self.agent.id)

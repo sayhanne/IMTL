@@ -27,14 +27,14 @@ class MTL(nn.Module):
         backbone = BackBoneNet(hidden_dim=hidden_dim, num_layers=num_hid, activation=nn.ReLU(), device=self.device)
 
         for t in range(num_tasks):
-            input_layer = DenseLayer(inSize=input_dims[t], outSize=hidden_dim, activation=nn.ReLU(),
-                                     device=self.device)
+            input_proj_layer = DenseLayer(inSize=input_dims[t], outSize=hidden_dim, activation=nn.ReLU(),
+                                          device=self.device)
             if not self.shared_backbone:  # if not sharing backbone, create independent backbone
                 backbone = BackBoneNet(hidden_dim=hidden_dim, num_layers=num_hid, activation=nn.ReLU(),
                                        device=self.device)
             output_layers = SubNet(hidden_dim=hidden_dim, out_dim=output_dims[t], num_layers=num_hid // 2,
                                    activation=nn.ReLU(), device=self.device)
-            task_net = nn.Sequential(input_layer, backbone, output_layers)
+            task_net = nn.Sequential(input_proj_layer, backbone, output_layers)
             self.network.append(task_net)
 
     def set_optimizer(self):
@@ -114,7 +114,7 @@ class MTL(nn.Module):
             for (X, target, action) in data_loader:
                 batch_loss = self.forward_mb(task_id=task_id, y=target, action=action, X=X)
                 running_loss += batch_loss.item()
-                batch_energy += self.sum_dense_activations(self.network[task_id]) / 1000    # as in kW
+                batch_energy += self.sum_dense_activations(self.network[task_id]) / 1000  # as in kW
         avg_loss = running_loss / len(data_loader)
         avg_energy = batch_energy / len(data_loader)
 

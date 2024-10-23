@@ -3,35 +3,35 @@ import os
 import numpy as np
 
 from environment import PushEnv, StackEnv, HitEnv  # , CollisionEnv
-import math
+# import math
 
-REAL_TIME = True
+REAL_TIME = False
 
 
 class TableTopTask:
-    def __init__(self, data_path, N, task_name):
-        in_dim = 3
+    def __init__(self, data_path, N, task_name, gui=0):
         """ total 6 objs => 6 dim for one-hot obj id """
-        action_dim = 8  # [sin(x), cos(x), one-hot obj-id]
-        out_dim = 3
+        in_dim = 12     # pos, ori (euler), obj_id
+        action_dim = 2  # sin (x), cos (x)
+        out_dim = 12
         self.upper_lim = 180.
         if task_name == 'push':
-            self.env = PushEnv(gui=1)
+            self.env = PushEnv(gui=gui)
             self.env.initialize()
 
         elif task_name == 'stack':
-            self.env = StackEnv(gui=1)
+            self.env = StackEnv(gui=gui)
             self.env.initialize()
-            in_dim = 6
-            out_dim = 6
-            action_dim = 12  # [one-hot target-id, one-hot obj-id]
+            in_dim *= 2
+            out_dim *= 2
 
         elif task_name == 'hit':
-            self.env = HitEnv(gui=1)
+            self.env = HitEnv(gui=gui)
             self.env.initialize()
 
         # elif task_name == 'collision':
-        #     self.env = CollisionEnv(gui=1)
+        #     TODO: fix here
+        #     self.env = CollisionEnv(gui=gui)
         #     self.env.initialize()
         #     in_dim = 6
         #     out_dim = 6
@@ -56,13 +56,12 @@ class TableTopTask:
 
     def run_episode(self):
         angle = np.random.uniform(0., self.upper_lim, size=1)
-        action, state, effect = self.env.step(angle=angle, sleep=REAL_TIME)
+        action, (img_pre, state_pre),  (img_post, state_post) = self.env.step(angle=angle, sleep=REAL_TIME)
 
-        # TODO: fix here
-        self.state_img[self.index] = list(state)[0]
-        self.state_pose[self.index] = list(state)[1]
-        self.effect_img[self.index] = list(effect)[0]
-        self.effect_pose[self.index] = list(effect)[1]
+        self.state_img[self.index] = img_pre
+        self.state_pose[self.index] = state_pre
+        self.effect_img[self.index] = img_post
+        self.effect_pose[self.index] = state_post
         self.action_data[self.index] = action
         self.index += 1
         if self.index == self.num_samples:

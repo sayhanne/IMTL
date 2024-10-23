@@ -45,11 +45,11 @@ class Master:
         self.taskIDs = np.arange(start=0, stop=len(task_names))
         for task_name in task_names:
             if task_name == 'push' or task_name == 'hit':
-                input_dims.append(10)  # 7 + 3
-                output_dims.append(3)
+                input_dims.append(14)  # 12 + 2
+                output_dims.append(12)
             elif task_name == 'stack':
-                input_dims.append(16)  # 10 + 6
-                output_dims.append(6)
+                input_dims.append(26)  # 24 + 2
+                output_dims.append(24)
 
             if is_train:
                 # Train set
@@ -69,7 +69,7 @@ class Master:
                 # test_task_loader = test_dataset.load_data()
                 # self.test_loaders.append(test_task_loader)
 
-        self.model.create_network(num_hid=4, num_tasks=len(task_names), input_dims=input_dims, hidden_dim=6,
+        self.model.create_network(num_hid=4, num_tasks=len(task_names), input_dims=input_dims, hidden_dim=4,
                                   output_dims=output_dims)
         self.model.freeze_all()
         self.model.set_optimizer()
