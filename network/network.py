@@ -1,21 +1,38 @@
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch import Tensor
 from torch.utils.data import DataLoader
 
-from model.backbone import BackBoneNet
-from model.blocks import DenseLayer
-from model.subnet import SubNet
+from network.blocks import DenseLayer, MLP, MultiTaskAttention
+
+TASKS = ['push', 'hit', 'stack']
+INPUT_DIM_SINGLE = 12
+INPUT_DIM_STACK = 24
+UNIFIED_INPUT_DIM = INPUT_DIM_STACK  # 24 dimensions
+ACTION_DIM = 2
+HIDDEN_DIM = 32
+LATENT_DIM = 16
+SHARED_ENC_DIM = 64
+
+
+def pad_input(input_tensor, target_dim):
+    padding = target_dim - input_tensor.size(1)
+    if padding > 0:
+        padded_input = F.pad(input_tensor, (0, padding))
+    else:
+        padded_input = input_tensor
+    return padded_input
 
 
 class MTL(nn.Module):
-    def __init__(self, use_cuda=True, shared_backbone=True):
+    def __init__(self, use_cuda=True, is_sharing=True):
         super(MTL, self).__init__()
         # Model settings
         self.network = nn.ModuleList()
-        self.shared_backbone = shared_backbone
+        self.is_sharing = is_sharing
         # cuda settings
         use_cuda = use_cuda and torch.cuda.is_available()
         self.device = torch.device("cuda:0" if use_cuda else "cpu")
@@ -23,19 +40,30 @@ class MTL(nn.Module):
         self.optimizer = None
         self.criterion = nn.L1Loss()
 
-    def create_network(self, num_hid, num_tasks, input_dims, hidden_dim, output_dims):
-        backbone = BackBoneNet(hidden_dim=hidden_dim, num_layers=num_hid, activation=nn.ReLU(), device=self.device)
+    def create_network(self):
+        backbone_encoder, attention_net, action_layer, backbone_decoder = self.create_network_parts()
 
-        for t in range(num_tasks):
-            input_proj_layer = DenseLayer(inSize=input_dims[t], outSize=hidden_dim, activation=nn.ReLU(),
-                                          device=self.device)
-            if not self.shared_backbone:  # if not sharing backbone, create independent backbone
-                backbone = BackBoneNet(hidden_dim=hidden_dim, num_layers=num_hid, activation=nn.ReLU(),
-                                       device=self.device)
-            output_layers = SubNet(hidden_dim=hidden_dim, out_dim=output_dims[t], num_layers=num_hid // 2,
-                                   activation=nn.ReLU(), device=self.device)
-            task_net = nn.Sequential(input_proj_layer, backbone, output_layers)
-            self.network.append(task_net)
+        for task in TASKS:
+            if not self.is_sharing:
+                backbone_encoder, attention_net, action_layer, backbone_decoder = self.create_network_parts()
+            task_encoder = MLP(input_dim=SHARED_ENC_DIM, hidden_dim=HIDDEN_DIM, out_dim=LATENT_DIM, num_layers=2,
+                               activation=nn.ReLU(), device=self.device, is_shared=False)
+            output_dim = INPUT_DIM_SINGLE if task != 'stack' else INPUT_DIM_STACK
+            task_decoder = MLP(input_dim=SHARED_ENC_DIM, hidden_dim=HIDDEN_DIM, out_dim=output_dim, num_layers=2,
+                               activation=nn.ReLU(), device=self.device, is_shared=False)
+            task_network = nn.ModuleList([backbone_encoder, task_encoder, attention_net,
+                                          action_layer, backbone_decoder, task_decoder])
+            self.network.append(task_network)
+
+    def create_network_parts(self):
+        encoder = MLP(input_dim=UNIFIED_INPUT_DIM, hidden_dim=HIDDEN_DIM, out_dim=SHARED_ENC_DIM, num_layers=4,
+                      activation=nn.ReLU(), device=self.device, is_shared=self.is_sharing)
+        attention_net = MultiTaskAttention(latent_dim=LATENT_DIM, is_shared=self.is_sharing).to(self.device)
+        action_concat = DenseLayer(inSize=LATENT_DIM + ACTION_DIM, outSize=LATENT_DIM,
+                                   activation=nn.ReLU(), device=self.device, is_shared=self.is_sharing)
+        decoder = MLP(input_dim=LATENT_DIM, hidden_dim=HIDDEN_DIM, out_dim=SHARED_ENC_DIM, num_layers=4,
+                      activation=nn.ReLU(), device=self.device, is_shared=self.is_sharing)
+        return encoder, attention_net, action_concat, decoder
 
     def set_optimizer(self):
         self.optimizer = optim.AdamW(params=self.parameters(), lr=1e-4, weight_decay=1e-3, amsgrad=True)
@@ -49,13 +77,14 @@ class MTL(nn.Module):
             param.requires_grad = True
 
     def freeze_task(self, task_id, unfreeze=False):
-        self.network[task_id][0].freeze(unfreeze)  # DenseLayer (projection)
-        self.network[task_id][2].freeze(unfreeze)  # SubNet
-        if not self.shared_backbone:  # independent BackBoneNet
-            self.network[task_id][1].freeze(unfreeze)
+        for module in self.network[task_id]:
+            if not module.is_shared:
+                module.freeze(unfreeze)
 
-    def freeze_backbone(self, unfreeze=False):
-        self.network[0][1].freeze(unfreeze)  # task id does not matter. all tasks share same backbone
+    def freeze_shared_(self, unfreeze=False):
+        for module in self.network[0]:      # task id does not matter
+            if module.is_shared:
+                module.freeze(unfreeze)
 
     def sum_dense_activations(self, model):
         total_activation_sum = 0
@@ -79,8 +108,16 @@ class MTL(nn.Module):
         return synaptic_transmission_cost
 
     def forward(self, task_id, action, X):
-        action_X = torch.hstack((action, X))
-        y = self.network[task_id](action_X)
+        x = pad_input(X, UNIFIED_INPUT_DIM)
+        enc1_out = self.network[task_id][0](x)
+        enc2_out = self.network[task_id][1](enc1_out)
+        att_out = self.network[task_id][2](enc2_out)
+
+        action_x = torch.hstack((action, att_out))
+        action_out = self.network[task_id][3](action_x)
+        dec1_out = self.network[task_id][4](action_out)
+        y = self.network[task_id][5](dec1_out)
+
         return y
 
     def forward_mb(self, task_id, y: Tensor, action: Tensor, X: Tensor):

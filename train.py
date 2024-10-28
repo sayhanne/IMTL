@@ -5,8 +5,8 @@ import numpy as np
 import torch
 from torch import nn
 
-from model.network import MTL
-from model.utils.helper import LossUtils, TaskSelectionUtils, EnergyUtils
+from network.network import MTL
+from network.utils.helper import LossUtils, TaskSelectionUtils, EnergyUtils
 from preprocessing.dataset import LocationPredictionDataset
 
 
