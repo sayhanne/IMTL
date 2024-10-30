@@ -1,105 +1,125 @@
+import math
+import os
+
 import numpy as np
 import torch
-import torch.nn.functional as F
-import torch.nn as nn
-
-INPUT_DIM_SINGLE = 12
-INPUT_DIM_STACK = 24
-ACTION_DIM = 2
-LATENT_DIM = 128
-SHARED_ENC_DIM = 64
 
 
 def getTotalActivation(act):
     return np.sum(np.abs(act))
 
 
-class DenseLayer(nn.Module):
-    def __init__(self, inSize, outSize, activation, device, batch_norm=False, is_shared=False):
-        super(DenseLayer, self).__init__()
-        self.is_shared = is_shared
-        self.inSize = inSize
-        self.outSize = outSize
-        self.device = device
-        self.module = nn.Linear(inSize, outSize, device=self.device)
+class Linear(torch.nn.Module):
+    """ linear layer with optional batch normalization. """
+
+    def __init__(self, in_features, out_features, std=None, batch_norm=False, gain=None):
+        super(Linear, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.weight = torch.nn.Parameter(torch.Tensor(out_features, in_features))
+        self.bias = torch.nn.Parameter(torch.Tensor(out_features))
         if batch_norm:
-            self.bn = nn.BatchNorm1d(outSize)
-        self.batch_norm = batch_norm
-        self.isModuleFrozen = False
-        self.activation_out = None
+            self.batch_norm = torch.nn.BatchNorm1d(num_features=self.out_features)
 
-        if activation is None:
-            self.activation = (lambda x: x)
+        if std is not None:
+            self.weight.data.normal_(0., std)
+            self.bias.data.normal_(0., std)
         else:
-            self.activation = activation
-
-    def forward(self, X):
-        z = self.module(X)
-        if self.batch_norm:
-            if self.isModuleFrozen:
-                self.bn.eval()
-            else:
-                self.bn.train()
-            y = self.activation(self.bn(z))
-        else:
-            y = self.activation(z)
-        self.activation_out = getTotalActivation(y.detach().cpu().numpy())
-        return y
-
-    def freeze(self, unfreeze=False):
-        if not unfreeze:  # Freeze params.
-            for param in self.parameters():
-                param.requires_grad = False
-            self.isModuleFrozen = True
-        else:  # Unfreeze params.
-            for param in self.parameters():
-                param.requires_grad = True
-            self.isModuleFrozen = False
-
-
-class MLP(nn.Module):
-    def __init__(self, input_dim, hidden_dim, out_dim, num_layers, activation, device, is_shared=False):
-        super(MLP, self).__init__()
-        self.is_shared = is_shared
-        input_layer = DenseLayer(inSize=input_dim, outSize=hidden_dim,
-                                 activation=activation, device=device, is_shared=is_shared)
-        layers = [DenseLayer(inSize=hidden_dim, outSize=hidden_dim,
-                             activation=activation, device=device, is_shared=is_shared)
-                  for _ in range(num_layers - 2)]
-        output_layer = DenseLayer(inSize=hidden_dim, outSize=out_dim,
-                                  activation=activation, device=device, is_shared=is_shared)
-        self.layers = nn.Sequential(input_layer, *layers, output_layer)
-        self.numLayers = num_layers
-        self.isModuleFrozen = False
-
-    def freeze(self, unfreeze=False):
-        for layer in self.layers:
-            layer.freeze(unfreeze)
-        self.isModuleFrozen = False
-
-    def forward(self, X):
-        return self.layers(X)
-
-
-class MultiTaskAttention(nn.Module):
-    def __init__(self, latent_dim, is_shared=False):
-        super(MultiTaskAttention, self).__init__()
-        self.is_shared = is_shared
-        self.attn = nn.MultiheadAttention(embed_dim=latent_dim, num_heads=4, batch_first=True)
-        self.isModuleFrozen = False
-
-    def freeze(self, unfreeze=False):
-        if not unfreeze:  # Freeze params.
-            for param in self.parameters():
-                param.requires_grad = False
-            self.isModuleFrozen = True
-        else:  # Unfreeze params.
-            for param in self.parameters():
-                param.requires_grad = True
-            self.isModuleFrozen = False
+            # defaults to linear activation
+            if gain is None:
+                gain = 1
+            stdv = math.sqrt(gain / self.weight.size(1))
+            self.weight.data.normal_(0., stdv)
+            self.bias.data.zero_()
 
     def forward(self, x):
-        # x shape: [batch_size, seq_len=1, LATENT_DIM]
-        x = x.unsqueeze(1)  # Adding sequence length dimension
-        attn_output, _ = self.attn(x, x, x)
-        return attn_output.squeeze(1)  # Output shape: [batch_size, LATENT_DIM]
+        x = torch.nn.functional.linear(x, self.weight, self.bias)
+        if hasattr(self, "batch_norm"):
+            x = self.batch_norm(x)
+        return x
+
+    def extra_repr(self):
+        return "in_features={}, out_features={}".format(self.in_features, self.out_features)
+
+
+class MLP(torch.nn.Module):
+    """ multi-layer perceptron with batch norm option """
+
+    def __init__(self, layer_info, activation=torch.nn.ReLU(), std=None, batch_norm=False, indrop=None, hiddrop=None):
+        super(MLP, self).__init__()
+        layers = []
+        in_dim = layer_info[0]
+        for i, unit in enumerate(layer_info[1:-1]):
+            if i == 0 and indrop:
+                layers.append(torch.nn.Dropout(indrop))
+            elif i > 0 and hiddrop:
+                layers.append(torch.nn.Dropout(hiddrop))
+            layers.append(Linear(in_features=in_dim, out_features=unit, std=std, batch_norm=batch_norm, gain=2))
+            layers.append(activation)
+            in_dim = unit
+        layers.append(Linear(in_features=in_dim, out_features=layer_info[-1], batch_norm=False))
+        self.layers = torch.nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.layers(x)
+
+    def load(self, path, name):
+        state_dict = torch.load(os.path.join(path, name + ".ckpt"))
+        self.load_state_dict(state_dict)
+
+    def save(self, path, name):
+        dv = self.layers[-1].weight.device
+        if not os.path.exists(path):
+            os.makedirs(path)
+        torch.save(self.cpu().state_dict(), os.path.join(path, name + ".ckpt"))
+        self.train().to(dv)
+
+
+class ConvBlock(torch.nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, std=None, bias=True,
+                 batch_norm=False):
+        super(ConvBlock, self).__init__()
+        self.block = [torch.nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size,
+                                      stride=stride, padding=padding, bias=bias)]
+        if batch_norm:
+            self.block.append(torch.nn.BatchNorm2d(out_channels))
+        self.block.append(torch.nn.ReLU())
+
+        if std is not None:
+            self.block[0].weight.data.normal_(0., std)
+            self.block[0].bias.data.normal_(0., std)
+        self.block = torch.nn.Sequential(*self.block)
+
+    def forward(self, x):
+        return self.block(x)
+
+
+# Fix here  !!!!!!
+def build_encoder(opts, level):
+    if level == 1:
+        code_dim = opts["code1_dim"]
+    else:
+        code_dim = opts["code2_dim"]
+    if opts["cnn"]:
+        L = len(opts["filters"+str(level)])-1
+        stride = 2
+        encoder = []
+        for i in range(L):
+            encoder.append(ConvBlock(in_channels=opts["filters"+str(level)][i],
+                                     out_channels=opts["filters"+str(level)][i+1],
+                                     kernel_size=3, stride=1, padding=1, batch_norm=opts["batch_norm"]))
+            encoder.append(ConvBlock(in_channels=opts["filters"+str(level)][i+1],
+                                     out_channels=opts["filters"+str(level)][i+1],
+                                     kernel_size=3, stride=stride, padding=1, batch_norm=opts["batch_norm"]))
+        encoder.append(Avg([2, 3]))
+        encoder.append(MLP([opts["filters"+str(level)][-1], code_dim]))
+        encoder.append(STLayer())
+    else:
+        encoder = [
+            Flatten([1, 2, 3]),
+            MLP([[opts["size"]**2] + [opts["hidden_dim"]]*opts["depth"] + [code_dim]],
+                batch_norm=opts["batch_norm"]),
+            STLayer()]
+
+    encoder = torch.nn.Sequential(*encoder)
+    return encoder
