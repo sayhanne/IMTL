@@ -18,6 +18,7 @@ class Linear(torch.nn.Module):
         self.out_features = out_features
         self.weight = torch.nn.Parameter(torch.Tensor(out_features, in_features))
         self.bias = torch.nn.Parameter(torch.Tensor(out_features))
+        self.activation_out = None
         if batch_norm:
             self.batch_norm = torch.nn.BatchNorm1d(num_features=self.out_features)
 
@@ -36,6 +37,7 @@ class Linear(torch.nn.Module):
         x = torch.nn.functional.linear(x, self.weight, self.bias)
         if hasattr(self, "batch_norm"):
             x = self.batch_norm(x)
+        self.activation_out = getTotalActivation(x.detach().cpu().numpy())
         return x
 
     def extra_repr(self):

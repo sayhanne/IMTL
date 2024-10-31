@@ -1,9 +1,9 @@
 name: vanillamlp
-num_seeds: 10
+num_seeds: 1
 mode: singletask
+tasks: ["push", "hit", "stack"]
 num_tasks: 3
 selection: rand
-is_shared: true
 batch_norm: false
 epoch: 1000
 batch_size: 500
@@ -19,5 +19,5 @@ dec_depth_shared: 2
 dec_depth_task: 1
 device: cuda
 load: null
-save: results/training
+save: results/training/vanillamlp
 task_sequence: null

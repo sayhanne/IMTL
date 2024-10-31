@@ -10,7 +10,7 @@ def train_test_split(task):
     post_pose = np.load('../data/{}-task-effects-pose.npy'.format(task_name), allow_pickle=True)
     # post_img = np.load('../data/{}-task-effects-img.npy'.format(task_name), allow_pickle=True)
 
-    train_indices = np.random.choice(a=range(9000), size=6000, replace=False)
+    train_indices = np.random.choice(a=range(9000), size=8000, replace=False)
     test_indices = np.setdiff1d(range(9000), train_indices, assume_unique=True)
 
     train_pose_pre = np.take(pre_pose, train_indices, axis=0)
@@ -19,19 +19,20 @@ def train_test_split(task):
     train_pose_post = np.take(post_pose, train_indices, axis=0)
     # train_img_post = np.take(post_img, train_indices, axis=0)
     #
-    # # Split training data into training + validation set
+    # Split training data into training + validation set
 
-    # val_pose_pre = train_pose_pre[:500]
-    # val_img_pre = train_img_pre[:500]
-    # val_actions = train_actions[:500]
-    # val_pose_post = train_pose_post[:500]
-    # val_img_post = train_img_post[:500]
+    val_samples = 2000
+    val_pose_pre = train_pose_pre[:val_samples]
+    # val_img_pre = train_img_pre[:val_samples]
+    val_actions = train_actions[:val_samples]
+    val_pose_post = train_pose_post[:val_samples]
+    # val_img_post = train_img_post[:val_samples]
 
-    # train_pose_pre = train_pose_pre[500:]
-    # train_img_pre = train_img_pre[500:]
-    # train_actions = train_actions[500:]
-    # train_pose_post = train_pose_post[500:]
-    # train_img_post = train_img_post[500:]
+    train_pose_pre = train_pose_pre[val_samples:]
+    # train_img_pre = train_img_pre[val_samples:]
+    train_actions = train_actions[val_samples:]
+    train_pose_post = train_pose_post[val_samples:]
+    # train_img_post = train_img_post[val_samples:]
 
     test_pose_pre = np.take(pre_pose, test_indices, axis=0)
     # test_img_pre = np.take(pre_img, test_indices, axis=0)
@@ -45,11 +46,11 @@ def train_test_split(task):
     np.save('../train_data/{}-task-effects-pose.npy'.format(task_name), train_pose_post)
     # np.save('../train_data/{}-task-effects-img.npy'.format(task_name), train_img_post)
 
-    # np.save('val_data/{}-task-states-pose.npy'.format(task_name), val_pose_pre)
-    # np.save('val_data/{}-task-states-img.npy'.format(task_name), val_img_pre)
-    # np.save('val_data/{}-task-actions.npy'.format(task_name), val_actions)
-    # np.save('val_data/{}-task-effects-pose.npy'.format(task_name), val_pose_post)
-    # np.save('val_data/{}-task-effects-img.npy'.format(task_name), val_img_post)
+    np.save('../val_data/{}-task-states-pose.npy'.format(task_name), val_pose_pre)
+    # np.save('../val_data/{}-task-states-img.npy'.format(task_name), val_img_pre)
+    np.save('../val_data/{}-task-actions.npy'.format(task_name), val_actions)
+    np.save('../val_data/{}-task-effects-pose.npy'.format(task_name), val_pose_post)
+    # np.save('../val_data/{}-task-effects-img.npy'.format(task_name), val_img_post)
 
     np.save('../test_data/{}-task-states-pose.npy'.format(task_name), test_pose_pre)
     # np.save('../test_data/{}-task-states-img.npy'.format(task_name), test_img_pre)
@@ -67,20 +68,28 @@ def scale_data(task):
     train_state_pose = np.load('../train_data/{}-task-states-pose.npy'.format(task_name), allow_pickle=True)
     train_effect_pose = np.load('../train_data/{}-task-effects-pose.npy'.format(task_name), allow_pickle=True)
 
+    val_state_pose = np.load('../val_data/{}-task-states-pose.npy'.format(task_name), allow_pickle=True)
+    val_effect_pose = np.load('../val_data/{}-task-effects-pose.npy'.format(task_name), allow_pickle=True)
+
     test_state_pose = np.load('../test_data/{}-task-states-pose.npy'.format(task_name), allow_pickle=True)
     test_effect_pose = np.load('../test_data/{}-task-effects-pose.npy'.format(task_name), allow_pickle=True)
 
     # input scaling
     train_state_pose_scaled = state_scaler.fit_transform(train_state_pose)
+    val_state_pose_scaled = state_scaler.transform(val_state_pose)
     test_state_pose_scaled = state_scaler.transform(test_state_pose)
 
     # output scaling
     train_effect_pose_scaled = effect_scaler.fit_transform(train_effect_pose)
+    val_effect_pose_scaled = effect_scaler.transform(val_effect_pose)
     test_effect_pose_scaled = effect_scaler.transform(test_effect_pose)
 
     np.save('../train_data/{}-task-states-pose-scaled.npy'.format(task_name), train_state_pose_scaled)
+    np.save('../val_data/{}-task-states-pose-scaled.npy'.format(task_name), val_state_pose_scaled)
     np.save('../test_data/{}-task-states-pose-scaled.npy'.format(task_name), test_state_pose_scaled)
+
     np.save('../train_data/{}-task-effects-pose-scaled.npy'.format(task_name), train_effect_pose_scaled)
+    np.save('../val_data/{}-task-effects-pose-scaled.npy'.format(task_name), val_effect_pose_scaled)
     np.save('../test_data/{}-task-effects-pose-scaled.npy'.format(task_name), test_effect_pose_scaled)
 
 

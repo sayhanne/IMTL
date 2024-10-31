@@ -4,52 +4,57 @@ import numpy as np
 
 class LossUtils:
     def __init__(self, task_count):
-        self.train_losses = [0. for _ in range(task_count)]
-        self.test_losses = [0. for _ in range(task_count)]
+        self.train_loss = [0. for _ in range(task_count)]
+        self.eval_loss = [0. for _ in range(task_count)]
         self.train_loss_history = [[] for _ in range(task_count)]
         self.train_loss_history_plot = [[] for _ in range(task_count)]
-        self.test_loss_history_plot = [[] for _ in range(task_count)]
+        self.eval_loss_history_plot = [[] for _ in range(task_count)]
 
-    def update_task_loss(self, index, is_eval=False):
+    def update_task_loss(self, loss, index, is_eval=False):
         if not is_eval:
-            self.train_loss_history[index].append(self.train_losses[index])
+            self.train_loss[index] = loss
+            self.train_loss_history[index].append(loss)
         else:
-            self.train_loss_history[index][-1] = self.train_losses[index]
+            self.eval_loss[index] = loss
+            self.eval_loss_history_plot[index].append(loss)
 
-    def update_task_loss_plots(self):
-        for i, loss in enumerate(self.train_losses):
+    def update_last_loss(self, loss, index):
+        self.train_loss[index] = loss
+        self.train_loss_history[index][-1] = loss
+
+    def update_loss_plot(self):
+        for i, loss in enumerate(self.train_loss):
             self.train_loss_history_plot[i].append(loss)
-
-    def update_test_loss(self, index):
-        self.test_loss_history_plot[index].append(self.test_losses[index])
 
 
 class EnergyUtils:
     def __init__(self, task_count):
         self.taskCount = task_count
         self.train_energies = [0. for _ in range(task_count)]
-        self.test_energies = [0. for _ in range(task_count)]
+        self.eval_energies = [0. for _ in range(task_count)]
         self.train_energy_history = [[] for _ in range(task_count)]
-        self.test_energy_history = [[] for _ in range(task_count)]
-        # self.train_energy_history_plot = [[] for _ in range(task_count)]
+        self.eval_energy_history = [[] for _ in range(task_count)]
 
-    def update_task_energy(self, index, is_eval=False):
+    def update_task_energy(self, energy, index, is_eval=False):
         if not is_eval:
-            self.train_energy_history[index].append(self.train_energies[index])
+            self.train_energies[index] = energy
+            self.train_energy_history[index].append(energy)
         else:
-            self.train_energy_history[index][-1] = self.train_energies[index]
+            self.eval_energies[index] = energy
+            self.eval_energy_history[index].append(energy)
 
-    def update_test_energy(self, index):
-        self.test_energy_history[index].append(self.test_energies[index])
+    def update_last_energy(self, energy, index):
+        self.train_energies[index] = energy
+        self.train_energy_history[index][-1] = energy
 
-    def get_total_energy(self, is_test=False):
+    def get_total_energy(self, is_eval=False):
         total_energy = [0. for _ in range(self.taskCount)]
-        if not is_test:
+        if not is_eval:
             for t, en in enumerate(self.train_energy_history):
                 total_energy[t] = np.sum(en)
 
         else:
-            for t, en in enumerate(self.test_energy_history):
+            for t, en in enumerate(self.eval_energy_history):
                 total_energy[t] = np.sum(en)
         return total_energy
 
@@ -69,6 +74,10 @@ class TaskSelectionUtils:
                 self.sequence = np.load(random_seq_path)
             else:
                 self.sequence = None
+
+    def update_(self, loss, energy):
+        if self.selection == 'lp':
+
 
     def calculate_lp(self, loss, index):
         y = loss[-5:]

@@ -4,7 +4,7 @@ from torch.utils.data import Dataset, DataLoader
 
 
 class LocationPredictionDataset(Dataset):
-    def __init__(self, task_name, batch_size=500, mode="train", target_obj=-1, moving_obj=-1):  # mode -> train, val, test
+    def __init__(self, task_name, batch_size=500, mode="train"):  # mode -> train, val, test
         X = np.load('{}_data/{}-task-states-pose-scaled.npy'.format(mode, task_name), allow_pickle=True)
         target = np.load('{}_data/{}-task-effects-pose.npy'.format(mode, task_name), allow_pickle=True)
         actions = np.load('{}_data/{}-task-actions.npy'.format(mode, task_name),
