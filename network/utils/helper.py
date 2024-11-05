@@ -1,4 +1,6 @@
 import math
+from copy import deepcopy
+
 import numpy as np
 
 
@@ -22,9 +24,12 @@ class LossUtils:
         self.train_loss[index] = loss
         self.train_loss_history[index][-1] = loss
 
-    def update_loss_plot(self):
-        for i, loss in enumerate(self.train_loss):
-            self.train_loss_history_plot[i].append(loss)
+    def update_loss_plot(self, copy=False, task_id=-1):
+        if not copy:
+            for i, loss in enumerate(self.train_loss):
+                self.train_loss_history_plot[i].append(loss)
+        else:
+            self.train_loss_history_plot[task_id] = deepcopy(self.train_loss_history[task_id])
 
 
 class EnergyUtils:
@@ -61,8 +66,9 @@ class EnergyUtils:
 
 class TaskSelectionUtils:
     def __init__(self, task_count, selection, random_seq_path):
-        self.current_lp = [0. for _ in range(task_count)]
-        self.lp_history = [[] for _ in range(task_count)]
+        if "lp" in selection:
+            self.current_lp = [0. for _ in range(task_count)]
+            self.lp_history = [[] for _ in range(task_count)]
 
         self.selection_history = []
         self.selection = selection
@@ -77,7 +83,7 @@ class TaskSelectionUtils:
 
     def update_(self, loss, energy):
         if self.selection == 'lp':
-
+            pass
 
     def calculate_lp(self, loss, index):
         y = loss[-5:]

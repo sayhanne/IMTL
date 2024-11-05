@@ -12,6 +12,13 @@ from network.models import SingleTask, MultiTask
 from preprocessing.dataset import LocationPredictionDataset
 
 
+def get_parameter_count(model):
+    total_num = 0
+    for param in model.parameters():
+        total_num += param.shape.numel()
+    return total_num
+
+
 def train(log_lock, seed, config):
     log_lock.acquire()
     try:
@@ -45,7 +52,7 @@ def train(log_lock, seed, config):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser("Interleaved multi effect prediction models.")
     parser.add_argument("-opts", help="option file", type=str,
-                        default='opts.yml')
+                        default='singletask.yml')
     args = parser.parse_args()
 
     opts = yaml.safe_load(open(args.opts, "r"))
@@ -55,6 +62,8 @@ if __name__ == '__main__':
     train_opts = deepcopy(opts)
     opts["time"] = time.asctime(time.localtime(time.time()))
     seeds = np.random.randint(low=0, high=100000, size=opts["num_seeds"])
+    print(seeds)
+    # seeds = np.asarray([7790, 71302, 82415,  5753, 12390, 44584, 38257, 75506,  9719, 80688])
     opts["seeds"] = seeds.tolist()
 
     # Save training config

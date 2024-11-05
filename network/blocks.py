@@ -96,32 +96,11 @@ class ConvBlock(torch.nn.Module):
         return self.block(x)
 
 
-# Fix here  !!!!!!
-def build_encoder(opts, level):
-    if level == 1:
-        code_dim = opts["code1_dim"]
-    else:
-        code_dim = opts["code2_dim"]
-    if opts["cnn"]:
-        L = len(opts["filters"+str(level)])-1
-        stride = 2
-        encoder = []
-        for i in range(L):
-            encoder.append(ConvBlock(in_channels=opts["filters"+str(level)][i],
-                                     out_channels=opts["filters"+str(level)][i+1],
-                                     kernel_size=3, stride=1, padding=1, batch_norm=opts["batch_norm"]))
-            encoder.append(ConvBlock(in_channels=opts["filters"+str(level)][i+1],
-                                     out_channels=opts["filters"+str(level)][i+1],
-                                     kernel_size=3, stride=stride, padding=1, batch_norm=opts["batch_norm"]))
-        encoder.append(Avg([2, 3]))
-        encoder.append(MLP([opts["filters"+str(level)][-1], code_dim]))
-        encoder.append(STLayer())
-    else:
-        encoder = [
-            Flatten([1, 2, 3]),
-            MLP([[opts["size"]**2] + [opts["hidden_dim"]]*opts["depth"] + [code_dim]],
-                batch_norm=opts["batch_norm"]),
-            STLayer()]
+class MultiHeadAttnLayer(torch.nn.Module):
+    def __init__(self, embed_dim, num_heads=1):
+        super(MultiHeadAttnLayer, self).__init__()
+        self.attention = torch.nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads)
 
-    encoder = torch.nn.Sequential(*encoder)
-    return encoder
+    def forward(self, query, key, value):
+        attn_output, attn_weights = self.attention(query, key, value)
+        return attn_output
