@@ -9,14 +9,15 @@ epoch: 1000
 batch_size: 500
 learning_rate: 0.00005
 in_size: [12, 12, 24]
-out_size: [12, 12, 24]
+out_size: [6, 6, 12]
 rep_dim: 4
 action_dim: 2
 hidden_dim: 4
-enc_depth_shared: 4
-enc_depth_task: 2
-dec_depth_shared: 2
-dec_depth_task: 1
+enc_depth_lvl1: 4
+enc_depth_lvl2: 2
+num_heads: 1
+#dec_depth_shared: 2
+dec_depth_lvl2: 1
 device: cuda
 load: null
 save: results/training/imtl-lp
