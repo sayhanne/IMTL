@@ -81,16 +81,16 @@ class TaskSelectionUtils:
             else:
                 self.sequence = None
 
-    def update_(self, loss, energy):
-        if self.selection == 'lp':
-            pass
-
     def calculate_lp(self, loss, index):
-        y = loss[-5:]
-        x = range(1, 6)
-        slope = np.polyfit(x, y, deg=1)[0]
-        if slope < 0.:
-            self.current_lp[index] = math.fabs(slope)
+        # y = loss[-5:]
+        # x = range(1, 6)
+        # slope = np.polyfit(x, y, deg=1)[0]
+        # if slope < 0.:
+        #     self.current_lp[index] = math.fabs(slope)
+        y = loss[-1]
+        y_pre = loss[-2]
+        lp = (y_pre - y) / y_pre
+        self.current_lp[index] = lp
 
     def save_progress(self):
         for i, progress in enumerate(self.current_lp):

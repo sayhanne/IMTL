@@ -164,10 +164,11 @@ class EffectPrediction(nn.Module):
 
             if avg_vloss < best_loss:  # avg task loss
                 best_loss = avg_vloss
-                self.save(self.save_path, "_best")
+                # self.save(self.save_path, "_best")
 
             if e == self.num_epochs:
-                self.save(self.save_path, "_last")
+                print()
+                # self.save(self.save_path, "_last")
 
             if e % 200 == 0:
                 np.save('{}/train-energy-bar-epoch-{}-seed-{}.npy'.format(self.result_path, e, self.seed),
@@ -271,12 +272,14 @@ class SingleTask(EffectPrediction):
         num_tasks = config["num_tasks"]
         task_encoders = nn.ModuleList()
         for n in range(num_tasks):
-            lvl1encoder = MLP(layer_info=[config["in_size"][n]] + [config["hidden_dim"]] * config["enc_depth_shared"],
+            lvl1encoder = MLP(layer_info=[config["in_size"][n]] + [config["hidden_dim"]] * config["enc_depth_lvl1"],
                               batch_norm=config["batch_norm"])
-            lvl2encoder = MLP(layer_info=[config["hidden_dim"]] * config["enc_depth_task"] + [config["rep_dim"]],
+            lvl2encoder = MLP(layer_info=[config["hidden_dim"]] * config["enc_depth_lvl2"] + [config["rep_dim"]],
                               batch_norm=config["batch_norm"])
+            attn_layer = MultiHeadAttnLayer(embed_dim=config["rep_dim"] + config["action_dim"], num_heads=config["num_heads"])
             encoder = nn.Sequential(OrderedDict([("lvl1encoder", lvl1encoder),
-                                                 ("lvl2encoder", lvl2encoder)]))
+                                                 ("lvl2encoder", lvl2encoder),
+                                                 ("attn_layer", attn_layer)]))
             task_encoders.append(encoder)
         return task_encoders
 
@@ -284,14 +287,14 @@ class SingleTask(EffectPrediction):
         num_tasks = config["num_tasks"]
         task_decoders = nn.ModuleList()
         for n in range(num_tasks):
-            lvl1decoder = MLP(layer_info=[config["rep_dim"] + config["action_dim"]] + [config["hidden_dim"]] * config[
-                "dec_depth_shared"],
-                              batch_norm=config["batch_norm"])
+            # lvl1decoder = MLP(layer_info=[config["rep_dim"] + config["action_dim"]] + [config["hidden_dim"]] * config[
+            #     "dec_depth_shared"],
+            #                   batch_norm=config["batch_norm"])
             lvl2decoder = MLP(
-                layer_info=[config["hidden_dim"]] * config["dec_depth_task"] + [config["out_size"][n]],
+                layer_info=[config["rep_dim"] + config["action_dim"]] + [config["hidden_dim"]] * config[
+                    "dec_depth_lvl2"] + [config["out_size"][n]],
                 batch_norm=config["batch_norm"])
-            decoder = nn.Sequential(OrderedDict([("lvl1decoder", lvl1decoder),
-                                                 ("lvl2decoder", lvl2decoder)]))
+            decoder = nn.Sequential(OrderedDict([("lvl2decoder", lvl2decoder)]))
             task_decoders.append(decoder)
         return task_decoders
 
@@ -307,9 +310,17 @@ class SingleTask(EffectPrediction):
             self.decoder[task_id].eval()
 
     def loss(self, task_id, state, effect, action):
-        h = self.encoder[task_id](state)
-        h_aug = torch.cat([h, action], dim=-1)
-        effect_pred = self.decoder[task_id](h_aug)
+        lvl1_code = self.encoder[task_id].lvl1encoder(state)
+        task_code = self.encoder[task_id].lvl2encoder(lvl1_code)
+        rep = torch.cat([task_code, action], dim=-1).unsqueeze(0)
+        keys = rep.clone()
+        values = rep.clone()
+        query = rep.clone()
+        h_attn = self.encoder[task_id].attn_layer(query, keys, values).squeeze(0)
+        effect_pred = self.decoder[task_id](h_attn)
+        # h = self.encoder[task_id](state)
+        # h_aug = torch.cat([h, action], dim=-1)
+        # effect_pred = self.decoder[task_id](h_aug)
         return self.criterion(effect_pred, effect)
 
     def one_pass_others(self, winner, loader):
@@ -338,13 +349,13 @@ class MultiTask(EffectPrediction):
         task_encoders = nn.ModuleList()
         in_size = max(config["in_size"])
         # Shared encoder
-        lvl1encoder = MLP(layer_info=[in_size] + [config["hidden_dim"]] * config["enc_depth_shared"],
+        lvl1encoder = MLP(layer_info=[in_size] + [config["hidden_dim"]] * config["enc_depth_lvl1"],
                           batch_norm=config["batch_norm"])
 
         # Shared attention layer
-        attn_layer = MultiHeadAttnLayer(embed_dim=config["rep_dim"])
+        attn_layer = MultiHeadAttnLayer(embed_dim=1 + config["rep_dim"] + config["action_dim"], num_heads=config["num_heads"])
         for n in range(num_tasks):
-            lvl2encoder = MLP(layer_info=[config["hidden_dim"]] * config["enc_depth_task"] + [config["rep_dim"]],
+            lvl2encoder = MLP(layer_info=[config["hidden_dim"]] * config["enc_depth_lvl2"] + [config["rep_dim"]],
                               batch_norm=config["batch_norm"])
             encoder = nn.Sequential(OrderedDict([("lvl1encoder", lvl1encoder),
                                                  ("lvl2encoder", lvl2encoder),
@@ -356,15 +367,14 @@ class MultiTask(EffectPrediction):
         num_tasks = config["num_tasks"]
         task_decoders = nn.ModuleList()
         # Shared decoder
-        lvl1decoder = MLP(layer_info=[config["rep_dim"] + config["action_dim"]] + [config["hidden_dim"]] * config[
-            "dec_depth_shared"],
-                          batch_norm=config["batch_norm"])
+        # lvl1decoder = MLP(layer_info=[config["rep_dim"] + config["action_dim"]] + [config["hidden_dim"]] * config[
+        #     "dec_depth_lvl1"],
+        #                   batch_norm=config["batch_norm"])
         for n in range(num_tasks):
-            lvl2decoder = MLP(
-                layer_info=[config["hidden_dim"]] * config["dec_depth_task"] + [config["out_size"][n]],
-                batch_norm=config["batch_norm"])
-            decoder = nn.Sequential(OrderedDict([("lvl1decoder", lvl1decoder),
-                                                 ("lvl2decoder", lvl2decoder)]))
+            lvl2decoder = MLP(layer_info=[1 + config["rep_dim"] + config["action_dim"]] +
+                                         [config["hidden_dim"]] * config["dec_depth_lvl2"] + [config["out_size"][n]],
+                              batch_norm=config["batch_norm"])
+            decoder = nn.Sequential(OrderedDict([("lvl2decoder", lvl2decoder)]))
             task_decoders.append(decoder)
         return task_decoders
 
@@ -386,24 +396,28 @@ class MultiTask(EffectPrediction):
             self.decoder[task_id].lvl2decoder.eval()
 
     def loss(self, task_id, state, effect, action):
-        lvl1_code = self.encoder[task_id].lvl1encoder(state)    # shared encoder
-        lvl2_codes = []
+        lvl1_code = self.encoder[task_id].lvl1encoder(state)  # shared encoder
+        task_reprs = []
         for idx in self.task_ids:
             if idx != task_id:
-                with torch.no_grad():     # Frozen, no gradients computed
+                with torch.no_grad():  # Frozen, no gradients computed
                     task_code = self.encoder[idx].lvl2encoder(lvl1_code)  # task specific encoder
-            else:   # trainable
+                    flag = torch.FloatTensor(torch.zeros([task_code.shape[0], 1])).to(self.device)
+                    rep = torch.cat([flag, task_code, action], dim=-1)
+            else:  # trainable
                 task_code = self.encoder[idx].lvl2encoder(lvl1_code)
-            lvl2_codes.append(task_code.unsqueeze(0))   # Shape: (1, batch_size, rep_dim)
+                flag = torch.FloatTensor(torch.ones([task_code.shape[0], 1])).to(self.device)
+                rep = torch.cat([flag, task_code, action], dim=-1)
+            task_reprs.append(rep.unsqueeze(0))  # rep shape: (1, batch_size, (1 + rep_dim + action_dim))
 
-        keys = torch.cat(lvl2_codes, dim=0)  # Shape: (num_tasks, batch_size, rep_dim)
+        keys = torch.cat(task_reprs, dim=0)  # Shape: (num_tasks, batch_size, (1 + rep_dim + action_dim))
         values = keys.clone()
 
         # Query is from current task's representation
-        query = lvl2_codes[task_id]  # Shape: (1, batch_size, rep_dim)
-        h = self.encoder[task_id].attn_layer(query, keys, values).squeeze(0)     # Shape: (batch_size, rep_dim)
-        h_aug = torch.cat([h, action], dim=-1)
-        effect_pred = self.decoder[task_id](h_aug)
+        query = task_reprs[task_id].clone()  # query shape: (1, batch_size, (1 + rep_dim + action_dim))
+        h_attn = self.encoder[task_id].attn_layer(query, keys, values).squeeze(
+            0)  # Shape: (batch_size, (1 + rep_dim + action_dim))
+        effect_pred = self.decoder[task_id](h_attn)
         return self.criterion(effect_pred, effect)
 
     def one_pass_others(self, winner, loader):
@@ -428,10 +442,10 @@ class MultiTask(EffectPrediction):
     def freeze_lvl1(self, unfreeze=False):
         for param in self.encoder[0].lvl1encoder.parameters():  # shared encoder
             param.requires_grad = unfreeze
-        for param in self.encoder[0].attn_layer.parameters(): # shared attention layer
+        for param in self.encoder[0].attn_layer.parameters():  # shared attention layer
             param.requires_grad = unfreeze
-        for param in self.decoder[0].lvl1decoder.parameters():  # shared decoder
-            param.requires_grad = unfreeze
+        # for param in self.decoder[0].lvl1decoder.parameters():  # shared decoder
+        #     param.requires_grad = unfreeze
         self.encoder[0].lvl1encoder.train()
         self.encoder[0].attn_layer.train()
-        self.decoder[0].lvl1decoder.train()
+        # self.decoder[0].lvl1decoder.train()

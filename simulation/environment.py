@@ -154,12 +154,12 @@ class GenericEnv:
                                      dynamics=dynamics)
         return obj_id, orientation
 
-    def get_obj_info(self):
+    def get_obj_info(self, obj_id=True):
         raise NotImplementedError
 
-    def state(self):
+    def state(self, obj_id=True):
         rgb, depth, seg = utils.get_image(p=self._p, height=256, width=256)
-        obj_info = self.get_obj_info()
+        obj_info = self.get_obj_info(obj_id=obj_id)
         return rgb, obj_info
 
     def _step(self, count=1):
@@ -201,9 +201,13 @@ class PushEnv(GenericEnv):
                                                     self._p.getQuaternionFromEuler(self.obj_ori_df))
         self.agent._waitsleep(0.5, sleep=sleep)
 
-    def get_obj_info(self):
+    def get_obj_info(self, obj_id=True):
         pos, ori = self._p.getBasePositionAndOrientation(self.obj_id)
-        return {'object': np.hstack((list(pos), list(self._p.getEulerFromQuaternion(ori)), self.encoded_ids[self.obj_type]))}
+        if obj_id:
+            return {'object': np.hstack(
+                (list(pos), list(self._p.getEulerFromQuaternion(ori)), self.encoded_ids[self.obj_type]))}
+        else:
+            return {'object': np.hstack((list(pos), list(self._p.getEulerFromQuaternion(ori))))}
 
     def change_ori_angle(self, pos, angle):
         orientation = [self.obj_ori_df[0], self.obj_ori_df[1], math.radians(angle)]
@@ -254,10 +258,11 @@ class PushEnv(GenericEnv):
         self.agent.move_in_cartesian(pos, quat, t=1, sleep=sleep)
         self.init_agent_pose(t=0.25, sleep=sleep)
         self.agent._waitsleep(1, sleep=sleep)
-        img_post, state_post = self.state()
+        img_post, state_post = self.state(obj_id=False)
         state_post = state_post['object']     # get only value
 
-        return [math.sin(math.radians(angle)), math.cos(math.radians(angle))], (img_pre, state_pre), (img_post, state_post)
+        return [math.sin(math.radians(angle)), math.cos(math.radians(angle))], (img_pre, state_pre), (
+            img_post, state_post)
 
     def close(self):
         self._p.removeBody(self.agent.id)
@@ -302,7 +307,7 @@ class StackEnv(GenericEnv):
             x_ori = np.pi / 2
 
         orientation = [x_ori, y_ori, z_ori]
-        return orientation      # euler
+        return orientation  # euler
 
     def initialize(self):
         self.init_agent_pose(t=1)
@@ -385,11 +390,18 @@ class StackEnv(GenericEnv):
 
         self.agent._waitsleep(0.5, sleep=sleep)
 
-    def get_obj_info(self):
+    def get_obj_info(self, obj_id=True):
         target_pos, target_ori = self._p.getBasePositionAndOrientation(self.target_id)
         obj_pos, obj_ori = self._p.getBasePositionAndOrientation(self.obj_id)
-        return {'target': np.hstack((list(target_pos), list(self._p.getEulerFromQuaternion(target_ori)), self.encoded_ids[self.target_type])),
-                'object': np.hstack((list(obj_pos), list(self._p.getEulerFromQuaternion(obj_ori)), self.encoded_ids[self.obj_type]))}
+        if obj_id:
+            return {'target': np.hstack(
+                (list(target_pos), list(self._p.getEulerFromQuaternion(target_ori)),
+                 self.encoded_ids[self.target_type])),
+                'object': np.hstack(
+                    (list(obj_pos), list(self._p.getEulerFromQuaternion(obj_ori)), self.encoded_ids[self.obj_type]))}
+        else:
+            return {'target': np.hstack((list(target_pos), list(self._p.getEulerFromQuaternion(target_ori)))),
+                    'object': np.hstack((list(obj_pos), list(self._p.getEulerFromQuaternion(obj_ori))))}
 
     def step(self, angle, sleep=False):
         img_pre, state_pre = self.state()
@@ -426,7 +438,7 @@ class StackEnv(GenericEnv):
 
         self.init_agent_pose(0.25, sleep=sleep)
         self.agent._waitsleep(1, sleep=sleep)
-        img_post, state_post = self.state()
+        img_post, state_post = self.state(obj_id=False)
         state_post = np.hstack((state_post['target'], state_post['object']))   # get only value
 
         return [math.sin(grap_ori_euler[2]), math.cos(grap_ori_euler[2])], (img_pre, state_pre), (img_post, state_post)

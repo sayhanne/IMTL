@@ -13,7 +13,7 @@ class TableTopTask:
         """ total 6 objs => 6 dim for one-hot obj id """
         in_dim = 12     # pos, ori (euler), obj_id
         action_dim = 2  # sin (x), cos (x)
-        out_dim = 12
+        out_dim = 6     # pos, ori (euler)
         self.upper_lim = 180.
         if task_name == 'push':
             self.env = PushEnv(gui=gui)
