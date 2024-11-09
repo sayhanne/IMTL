@@ -8,7 +8,7 @@ import numpy as np
 import torch
 import yaml
 
-from network.models import SingleTask, MultiTask
+from network.models import SingleTask, MultiTask, BlockedMultiTask
 from preprocessing.dataset import LocationPredictionDataset
 
 
@@ -36,7 +36,7 @@ def train(log_lock, seed, config):
         train_loader = train_dataset.load_data()
         train_loaders.append(train_loader)
 
-        val_dataset = LocationPredictionDataset(task_name=task_name, batch_size=config["batch_size"], mode="val")
+        val_dataset = LocationPredictionDataset(task_name=task_name, batch_size=config["batch_size"], mode="test")
         val_loader = val_dataset.load_data()
         val_loaders.append(val_loader)
 
@@ -44,6 +44,8 @@ def train(log_lock, seed, config):
         model = SingleTask(seed, config)
     elif config["mode"] == "multitask":
         model = MultiTask(seed, config)
+    elif config["mode"] == "blocked":
+        model = BlockedMultiTask(seed, config)
     else:
         raise ValueError("Invalid model.")
     model.train_(train_loaders, val_loaders)
@@ -52,7 +54,7 @@ def train(log_lock, seed, config):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser("Interleaved multi effect prediction models.")
     parser.add_argument("-opts", help="option file", type=str,
-                        default='multitask.yml')
+                        default='singletask.yml')
     args = parser.parse_args()
 
     opts = yaml.safe_load(open(args.opts, "r"))
@@ -63,7 +65,7 @@ if __name__ == '__main__':
     opts["time"] = time.asctime(time.localtime(time.time()))
     # seeds = np.random.randint(low=0, high=100000, size=opts["num_seeds"])
     # print(seeds)
-    seeds = np.asarray([3765, 88664, 13514, 41521, 76001, 79916,  7991, 67749, 59685, 63475])
+    seeds = np.asarray([66094,  8571, 65138, 61881, 85675, 29433, 46911, 51577, 92058, 36322])
     opts["seeds"] = seeds.tolist()
 
     # Save training config

@@ -10,8 +10,8 @@ def train_test_split(task):
     post_pose = np.load('../data/{}-task-effects-pose.npy'.format(task_name), allow_pickle=True)
     # post_img = np.load('../data/{}-task-effects-img.npy'.format(task_name), allow_pickle=True)
 
-    train_indices = np.random.choice(a=range(9000), size=8000, replace=False)
-    test_indices = np.setdiff1d(range(9000), train_indices, assume_unique=True)
+    train_indices = np.random.choice(a=range(4000), size=3500, replace=False)
+    test_indices = np.setdiff1d(range(4000), train_indices, assume_unique=True)
 
     train_pose_pre = np.take(pre_pose, train_indices, axis=0)
     # train_img_pre = np.take(pre_img, train_indices, axis=0)
@@ -21,7 +21,7 @@ def train_test_split(task):
     #
     # Split training data into training + validation set
 
-    val_samples = 2000
+    val_samples = 500
     val_pose_pre = train_pose_pre[:val_samples]
     # val_img_pre = train_img_pre[:val_samples]
     val_actions = train_actions[:val_samples]
@@ -94,4 +94,6 @@ def scale_data(task):
 
 
 if __name__ == '__main__':
-    scale_data("stack")
+    task_names = ["hit", "push", "stack"]
+    for task_name in task_names:
+        scale_data(task_name)

@@ -143,6 +143,7 @@ class EffectPrediction(nn.Module):
 
         # Record pre-train results to the plot
         self.loss_util.update_loss_plot(copy=True, task_id=task_id)
+        self.energy_util.update_energy_plot(copy=True, task_id=task_id)
 
     def train_(self, train_loaders, val_loaders):
         for t in self.task_ids:
@@ -160,6 +161,7 @@ class EffectPrediction(nn.Module):
             self.one_pass_others(winner=winner_id, loader=train_loaders)
 
             self.loss_util.update_loss_plot()
+            self.energy_util.update_energy_plot()
             avg_vloss = self.evaluate_all(val_loaders)
 
             if avg_vloss < best_loss:  # avg task loss
@@ -167,13 +169,13 @@ class EffectPrediction(nn.Module):
                 # self.save(self.save_path, "_best")
 
             if e == self.num_epochs:
-                print()
+                print("------- Seed {} finished training!".format(self.seed))
                 # self.save(self.save_path, "_last")
 
             if e % 200 == 0:
                 np.save('{}/train-energy-bar-epoch-{}-seed-{}.npy'.format(self.result_path, e, self.seed),
                         np.asarray(self.energy_util.get_total_energy()))
-                np.save('{}/test-energy-bar-epoch-{}-seed-{}.npy'.format(self.result_path, e, self.seed),
+                np.save('{}/eval-energy-bar-epoch-{}-seed-{}.npy'.format(self.result_path, e, self.seed),
                         np.asarray(self.energy_util.get_total_energy(is_eval=True)))
 
             winner_id = self.get_next()
@@ -276,7 +278,8 @@ class SingleTask(EffectPrediction):
                               batch_norm=config["batch_norm"])
             lvl2encoder = MLP(layer_info=[config["hidden_dim"]] * config["enc_depth_lvl2"] + [config["rep_dim"]],
                               batch_norm=config["batch_norm"])
-            attn_layer = MultiHeadAttnLayer(embed_dim=config["rep_dim"] + config["action_dim"], num_heads=config["num_heads"])
+            attn_layer = MultiHeadAttnLayer(embed_dim=config["rep_dim"] + config["action_dim"],
+                                            num_heads=config["num_heads"])
             encoder = nn.Sequential(OrderedDict([("lvl1encoder", lvl1encoder),
                                                  ("lvl2encoder", lvl2encoder),
                                                  ("attn_layer", attn_layer)]))
@@ -348,12 +351,15 @@ class MultiTask(EffectPrediction):
         num_tasks = config["num_tasks"]
         task_encoders = nn.ModuleList()
         in_size = max(config["in_size"])
+        enc_hidden_dim = config["hidden_dim"] * 2
         # Shared encoder
-        lvl1encoder = MLP(layer_info=[in_size] + [config["hidden_dim"]] * config["enc_depth_lvl1"],
+        lvl1encoder = MLP(layer_info=[in_size] + [enc_hidden_dim] * (config["enc_depth_lvl1"] - 1) +
+                                     [config["hidden_dim"]],
                           batch_norm=config["batch_norm"])
 
         # Shared attention layer
-        attn_layer = MultiHeadAttnLayer(embed_dim=1 + config["rep_dim"] + config["action_dim"], num_heads=config["num_heads"])
+        attn_layer = MultiHeadAttnLayer(embed_dim=1 + config["rep_dim"] + config["action_dim"],
+                                        num_heads=config["num_heads"])
         for n in range(num_tasks):
             lvl2encoder = MLP(layer_info=[config["hidden_dim"]] * config["enc_depth_lvl2"] + [config["rep_dim"]],
                               batch_norm=config["batch_norm"])
@@ -426,10 +432,15 @@ class MultiTask(EffectPrediction):
                 self.evaluate_epoch(t, loader[t], val_=False)  # Do not train, just get training loss
 
     def get_next(self):
-        if self.selection_type == "lp":
+        if "lp" in self.selection_type:
             for t in self.task_ids:
                 self.selection_util.calculate_lp(loss=self.loss_util.train_loss_history[t], index=t)
-            self.selection_util.save_progress()
+            self.selection_util.save_lp()
+
+        if "e" in self.selection_type:
+            for t in self.task_ids:
+                self.selection_util.calculate_ep(energy=self.energy_util.train_energy_history[t], index=t)
+            self.selection_util.save_ep()
 
         return self.selection_util.get_winner()
 
@@ -449,3 +460,28 @@ class MultiTask(EffectPrediction):
         self.encoder[0].lvl1encoder.train()
         self.encoder[0].attn_layer.train()
         # self.decoder[0].lvl1decoder.train()
+
+
+class BlockedMultiTask(MultiTask):
+    def __init__(self, seed, config):
+        super(BlockedMultiTask, self).__init__(seed, config)
+
+    def train_(self, train_loaders, val_loaders):
+        winner_id = self.get_next()
+        self.freeze_lvl1(unfreeze=True)  # for multitask models, this is required, others pass
+        self.freeze_task(task_id=winner_id, unfreeze=True)
+        trained_tasks = []
+        for e in range(1, self.num_epochs + 1):
+            self.one_epoch_optimize(task_id=winner_id, loader=train_loaders[winner_id])
+            self.evaluate_epoch(task_id=winner_id, loader=val_loaders[winner_id])
+            for idx in trained_tasks:
+                self.evaluate_epoch(task_id=idx, loader=train_loaders[idx], val_=False)
+                self.evaluate_epoch(task_id=idx, loader=val_loaders[idx])
+            next_winner = self.get_next()
+            if winner_id != next_winner:
+                self.freeze_task(task_id=winner_id)
+                self.freeze_task(task_id=next_winner, unfreeze=True)
+                trained_tasks.append(winner_id)
+            winner_id = next_winner
+            self.loss_util.update_loss_plot()
+            self.energy_util.update_energy_plot()

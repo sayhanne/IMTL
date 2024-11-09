@@ -7,7 +7,7 @@ selection: rand
 batch_norm: false
 epoch: 1000
 batch_size: 500
-learning_rate: 0.00005
+learning_rate: 0.0001
 in_size: [12, 12, 24]
 out_size: [6, 6, 12]
 rep_dim: 4

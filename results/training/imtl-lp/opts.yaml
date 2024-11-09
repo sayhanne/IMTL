@@ -11,7 +11,7 @@ in_size:
 - 12
 - 12
 - 24
-learning_rate: 5.0e-05
+learning_rate: 0.0001
 load: null
 mode: multitask
 name: imtl-lp
@@ -25,20 +25,20 @@ out_size:
 rep_dim: 4
 save: results/training/imtl-lp
 seeds:
-- 3765
-- 88664
-- 13514
-- 41521
-- 76001
-- 79916
-- 7991
-- 67749
-- 59685
-- 63475
+- 66094
+- 8571
+- 65138
+- 61881
+- 85675
+- 29433
+- 46911
+- 51577
+- 92058
+- 36322
 selection: lp
 task_sequence: null
 tasks:
 - push
 - hit
 - stack
-time: Wed Nov  6 23:56:14 2024
+time: Sat Nov  9 16:11:23 2024

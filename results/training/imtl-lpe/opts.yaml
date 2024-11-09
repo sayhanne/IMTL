@@ -13,8 +13,8 @@ in_size:
 - 24
 learning_rate: 0.0001
 load: null
-mode: singletask
-name: vanillamlp
+mode: multitask
+name: imtl-lpe
 num_heads: 1
 num_seeds: 10
 num_tasks: 3
@@ -23,7 +23,7 @@ out_size:
 - 6
 - 12
 rep_dim: 4
-save: results/training/vanillamlp
+save: results/training/imtl-lpe
 seeds:
 - 66094
 - 8571
@@ -35,10 +35,10 @@ seeds:
 - 51577
 - 92058
 - 36322
-selection: rand
+selection: lpe
 task_sequence: null
 tasks:
 - push
 - hit
 - stack
-time: Sat Nov  9 16:11:46 2024
+time: Sat Nov  9 16:11:09 2024

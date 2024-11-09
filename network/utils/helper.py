@@ -38,7 +38,8 @@ class EnergyUtils:
         self.train_energies = [0. for _ in range(task_count)]
         self.eval_energies = [0. for _ in range(task_count)]
         self.train_energy_history = [[] for _ in range(task_count)]
-        self.eval_energy_history = [[] for _ in range(task_count)]
+        self.train_energy_history_plot = [[] for _ in range(task_count)]
+        self.eval_energy_history_plot = [[] for _ in range(task_count)]
 
     def update_task_energy(self, energy, index, is_eval=False):
         if not is_eval:
@@ -46,20 +47,27 @@ class EnergyUtils:
             self.train_energy_history[index].append(energy)
         else:
             self.eval_energies[index] = energy
-            self.eval_energy_history[index].append(energy)
+            self.eval_energy_history_plot[index].append(energy)
 
     def update_last_energy(self, energy, index):
         self.train_energies[index] = energy
         self.train_energy_history[index][-1] = energy
 
+    def update_energy_plot(self, copy=False, task_id=-1):
+        if not copy:
+            for i, energy in enumerate(self.train_energies):
+                self.train_energy_history_plot[i].append(energy)
+        else:
+            self.train_energy_history_plot[task_id] = deepcopy(self.train_energy_history[task_id])
+
     def get_total_energy(self, is_eval=False):
         total_energy = [0. for _ in range(self.taskCount)]
         if not is_eval:
-            for t, en in enumerate(self.train_energy_history):
+            for t, en in enumerate(self.train_energy_history_plot):
                 total_energy[t] = np.sum(en)
 
         else:
-            for t, en in enumerate(self.eval_energy_history):
+            for t, en in enumerate(self.eval_energy_history_plot):
                 total_energy[t] = np.sum(en)
         return total_energy
 
@@ -69,6 +77,10 @@ class TaskSelectionUtils:
         if "lp" in selection:
             self.current_lp = [0. for _ in range(task_count)]
             self.lp_history = [[] for _ in range(task_count)]
+
+        if "e" in selection:
+            self.current_ep = [0. for _ in range(task_count)]
+            self.ep_history = [[] for _ in range(task_count)]
 
         self.selection_history = []
         self.selection = selection
@@ -92,9 +104,24 @@ class TaskSelectionUtils:
         lp = (y_pre - y) / y_pre
         self.current_lp[index] = lp
 
-    def save_progress(self):
+    def calculate_ep(self, energy, index):
+        # y = loss[-5:]
+        # x = range(1, 6)
+        # slope = np.polyfit(x, y, deg=1)[0]
+        # if slope < 0.:
+        #     self.current_lp[index] = math.fabs(slope)
+        y = energy[-1]
+        y_pre = energy[-5]
+        ep = (y_pre - y) / y_pre
+        self.current_ep[index] = ep
+
+    def save_lp(self):
         for i, progress in enumerate(self.current_lp):
             self.lp_history[i].append(progress)
+
+    def save_ep(self):
+        for i, energy in enumerate(self.current_ep):
+            self.ep_history[i].append(energy)
 
     def get_winner(self):
         if self.selection == 'rand':
@@ -105,8 +132,13 @@ class TaskSelectionUtils:
                 winner = np.random.randint(0, self.taskCount)  # Pure random
             self.selection_history.append(winner)
 
-        else:  # LP based selection
-            winner_index = np.argsort(self.current_lp)[::-1][0]  # Highest lp
+        else:  # LP or energy based selection
+            winner_index = -1
+            if self.selection == "lp":
+                winner_index = np.argsort(self.current_lp)[::-1][0]  # Highest lp
+            elif self.selection == "lpe":
+                combined = np.asarray(self.current_lp) / np.asarray(self.current_ep)
+                winner_index = np.argsort(combined)[::-1][0]  # Highest lpe
             selected = np.random.choice(a=[winner_index, -1], p=[1 - self.e, self.e])
             if selected == -1:
                 other_tasks = np.setdiff1d(range(self.taskCount), [winner_index])
