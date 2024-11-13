@@ -3,6 +3,7 @@
 .idea/
 *.iml
 *.yaml
+*.yml
 *.npy
 *.pt
 *.xml
