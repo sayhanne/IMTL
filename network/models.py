@@ -44,15 +44,7 @@ class EffectPrediction(nn.Module):
         self.selection_type = config["selection"]
         self.model_type = config["mode"]
 
-        # Create subdir for model checkpoints and results
-        if not os.path.exists(config["save"] + "/model_ckpts"):
-            os.makedirs(config["save"] + "/model_ckpts")
-
         self.save_path = config["save"] + "/model_ckpts"
-
-        if not os.path.exists(config["save"] + "/plots"):
-            os.makedirs(config["save"] + "/plots")
-
         self.result_path = config["save"] + "/plots/"
 
     def build_encoder(self, config):
