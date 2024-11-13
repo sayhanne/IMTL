@@ -100,7 +100,7 @@ class TaskSelectionUtils:
         # if slope < 0.:
         #     self.current_lp[index] = math.fabs(slope)
         y = loss[-1]
-        y_pre = loss[-2]
+        y_pre = loss[-5]
         lp = (y_pre - y) / y_pre
         self.current_lp[index] = lp
 
