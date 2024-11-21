@@ -13,22 +13,22 @@ class GenericEnv:
         self.gui = gui
         self.reset(seed=seed)
         """
-        4 obj categories:
+        6 obj categories:
         sphere
         box
-        cylinder
-        prism
+        cylinder (vertical and horizontal)
+        prism   (vertical and horizontal)
 
         
-        pybullet ids
-        GEOM_BOX = 3
-        GEOM_CAPSULE = 7
-        GEOM_CYLINDER = 4 (vertical)
-        GEOM_MESH = 5
-        GEOM_PLANE = 6
-        GEOM_SPHERE = 2
+        pybullet objects
+        p.GEOM_BOX = 3
+        p.GEOM_CAPSULE = 7
+        p.GEOM_CYLINDER = 4 (vertical)
+        p.GEOM_MESH = 5
+        p.GEOM_PLANE = 6
+        p.GEOM_SPHERE = 2
         
-        self defined ids
+        self defined objects
         8 = cylinder (horizontal)
         9 = square prism (vertical)
         10 = square prism (horizontal)
@@ -41,7 +41,7 @@ class GenericEnv:
                             9: [0, 0, 0, 0, 1, 0],
                             10: [0, 0, 0, 0, 0, 1],
                             }
-        self.obj_types = [8, 9, 10, 2, 3, 4]
+        self.objects = [2, 3, 4, 8, 9, 10]
         self.x_range = [0.7, 1.1]
         self.y_range = [-0.2, 0.2]
         self.z = 0.45
@@ -82,7 +82,7 @@ class GenericEnv:
         angles = [-0.294, -1.950, 2.141, -2.062, -1.572, 1.277]
         self.agent.set_joint_position(angles, t=t, sleep=sleep, traj=traj)
 
-    def init_object(self, obj_type, position=None, orientation=None):
+    def init_object(self, obj, position=None, orientation=None):
         if not position:
             position = [np.random.uniform(self.x_range[0], self.x_range[1], size=1),
                         np.random.uniform(self.y_range[0], self.y_range[1], size=1), self.z]
@@ -107,17 +107,17 @@ class GenericEnv:
 
         dynamics = None
 
-        if obj_type == self._p.GEOM_SPHERE:  # 2
+        if obj == self._p.GEOM_SPHERE:  # 2
             color = [0.8, 0., 0.8, 1.]  # purple
             dynamics = spherical_dynamics
 
-        elif obj_type == self._p.GEOM_CYLINDER:  # 4
+        elif obj == self._p.GEOM_CYLINDER:  # 4
             size = [0.03, 0.09]
             color = [0.8, 0., 0., 1.]  # red
             dynamics = spherical_dynamics
 
-        elif obj_type == 8:  # horizontal cylinder (rollable)
-            obj_type = self._p.GEOM_CYLINDER
+        elif obj == 8:  # horizontal cylinder (rollable)
+            obj = self._p.GEOM_CYLINDER
             size = [0.03, 0.09]
             color = [0.8, 0.8, 0., 1.]  # yellow
             if not orientation:
@@ -127,18 +127,18 @@ class GenericEnv:
             spherical_dynamics["spinningFriction"] = 0.0002
             dynamics = spherical_dynamics
 
-        elif obj_type == self._p.GEOM_BOX:  # 3
+        elif obj == self._p.GEOM_BOX:  # 3
             color = [0., 0.8, 0., 1.]  # green
             # dynamics = box_dynamics
 
-        elif obj_type == 9:  # vertical square prism
-            obj_type = self._p.GEOM_BOX
+        elif obj == 9:  # vertical square prism
+            obj = self._p.GEOM_BOX
             size = [0.03, 0.03, 0.06]
             color = [0., 0.8, 0.8, 1.]  # cyan
             # dynamics = box_dynamics
 
-        elif obj_type == 10:  # horizontal square prism
-            obj_type = self._p.GEOM_BOX
+        elif obj == 10:  # horizontal square prism
+            obj = self._p.GEOM_BOX
             size = [0.03, 0.03, 0.06]
             color = [0., 0., 0.8, 1.]  # blue
             if not orientation:
@@ -148,19 +148,26 @@ class GenericEnv:
         if not orientation:
             orientation = [0., 0., 0.]
 
-        obj_id = utils.create_object(p=self._p, obj_type=obj_type, size=size,
+        obj_id = utils.create_object(p=self._p, obj_type=obj, size=size,
                                      position=position,
                                      rotation=orientation, color=color, mass=mass,
                                      dynamics=dynamics)
         return obj_id, orientation
 
-    def get_obj_info(self, obj_id=True):
+    def get_obj_info(self, obj=False):
         raise NotImplementedError
 
-    def state(self, obj_id=True):
+    def state(self, obj=False):
         rgb, depth, seg = utils.get_image(p=self._p, height=256, width=256)
-        obj_info = self.get_obj_info(obj_id=obj_id)
-        return rgb, obj_info
+        obj_info = self.get_obj_info(obj=obj)
+        return seg, obj_info
+
+    """
+    convert segmentation class from pybullet id to one-hot encoded obj id
+    """
+
+    def segment_obj_(self, seg):
+        raise NotImplementedError
 
     def _step(self, count=1):
         for _ in range(count):
@@ -174,25 +181,25 @@ class PushEnv(GenericEnv):
     def __init__(self, gui=0, seed=None):
         super(PushEnv, self).__init__(gui=gui, seed=seed)  # Reset Generic env
 
-        self.obj_id = -1  # will be updated in each iteration
-        self.obj_type = -1  # will be updated in each iteration
+        self.obj_id = -1  # given pybullet id
+        self.obj = -1  # will be updated in each iteration
         self.obj_index = 0  # index
         self.obj_ori_df = None
 
     def initialize(self):
         self.init_agent_pose(t=1)
-        obj_type = self.obj_types[self.obj_index]
-        self.obj_type = obj_type
-        self.obj_id, self.obj_ori_df = self.init_object(obj_type=obj_type)
+        obj = self.objects[self.obj_index]
+        self.obj = obj
+        self.obj_id, self.obj_ori_df = self.init_object(obj=obj)
         self._step(self.num_steps)
         self.agent.close_gripper(1, sleep=True)
 
-    def reset_object(self, changeType=False, sleep=False):
-        if changeType:  # Switch objects sequentially
+    def reset_object(self, changeObj=False, sleep=False):
+        if changeObj:  # Switch objects sequentially
             self._p.removeBody(self.obj_id)
             self.obj_index += 1
-            self.obj_type = self.obj_types[self.obj_index]
-            self.obj_id, self.obj_ori_df = self.init_object(obj_type=self.obj_type)
+            self.obj = self.objects[self.obj_index]
+            self.obj_id, self.obj_ori_df = self.init_object(obj=self.obj)
         else:
             self._p.resetBasePositionAndOrientation(self.obj_id,
                                                     [np.random.uniform(self.x_range[0], self.x_range[1], size=1),
@@ -201,13 +208,23 @@ class PushEnv(GenericEnv):
                                                     self._p.getQuaternionFromEuler(self.obj_ori_df))
         self.agent._waitsleep(0.5, sleep=sleep)
 
-    def get_obj_info(self, obj_id=True):
-        pos, ori = self._p.getBasePositionAndOrientation(self.obj_id)
-        if obj_id:
-            return {'object': np.hstack(
-                (list(pos), list(self._p.getEulerFromQuaternion(ori)), self.encoded_ids[self.obj_type]))}
+    def get_obj_info(self, obj=False):
+        pose = np.zeros(9, dtype=np.float32)
+        pos, quat = self._p.getBasePositionAndOrientation(self.obj_id)
+        euler_angles = self._p.getEulerFromQuaternion(quat)
+        pose[:3] = pos
+        pose[3:] = [np.cos(euler_angles[0]), np.sin(euler_angles[0]),
+                    np.cos(euler_angles[1]), np.sin(euler_angles[1]),
+                    np.cos(euler_angles[2]), np.sin(euler_angles[2])]
+
+        if obj:
+            return {'object': np.hstack((pose, self.encoded_ids[self.obj]))}
         else:
-            return {'object': np.hstack((list(pos), list(self._p.getEulerFromQuaternion(ori))))}
+            return {'object': pose}
+
+    def segment_obj_(self, seg):
+        seg[seg == self.env_dict["table"]] = 0  # background
+        seg[seg == self.obj_id] = np.argmax(self.encoded_ids[self.obj]) + 1  # object
 
     def change_ori_angle(self, pos, angle):
         orientation = [self.obj_ori_df[0], self.obj_ori_df[1], math.radians(angle)]
@@ -222,17 +239,19 @@ class PushEnv(GenericEnv):
         """
         change ori if the contact surface is not spherical
         """
-        if self.obj_type != self._p.GEOM_SPHERE and self.obj_type != self._p.GEOM_CYLINDER:
+        if self.obj != self._p.GEOM_SPHERE and self.obj != self._p.GEOM_CYLINDER:
             self.change_ori_angle(obj_loc, angle)
 
-        if self.obj_type == 9:  # vertical prism object
+        if self.obj == 9:  # vertical prism object
             if type(self) is PushEnv:
                 margin = 0.02
             elif type(self) is HitEnv:
                 margin *= 2
 
         img_pre, state_pre = self.state()
-        state_pre = state_pre['object']     # get only value
+        """ inplace operation below, be careful"""
+        self.segment_obj_(img_pre)
+        state_pre = state_pre['object']  # get only value
 
         pos = [0., 0., 0.]
         pos[0] = obj_loc[0] - dist_before * math.sin(math.radians(angle - 90)) * 0.01
@@ -258,11 +277,14 @@ class PushEnv(GenericEnv):
         self.agent.move_in_cartesian(pos, quat, t=1, sleep=sleep)
         self.init_agent_pose(t=0.25, sleep=sleep)
         self.agent._waitsleep(1, sleep=sleep)
-        img_post, state_post = self.state(obj_id=False)
-        state_post = state_post['object']     # get only value
+        img_post, state_post = self.state()
+        """ inplace operation below, be careful"""
+        self.segment_obj_(img_post)
+        state_post = state_post['object']  # get only value
+        pose_delta = state_post - state_pre  # pos and ori
 
         return [math.sin(math.radians(angle)), math.cos(math.radians(angle))], (img_pre, state_pre), (
-            img_post, state_post)
+            img_post, state_post), pose_delta
 
     def close(self):
         self._p.removeBody(self.agent.id)
@@ -289,8 +311,8 @@ class StackEnv(GenericEnv):
         self.target_id = -1
         self.obj_id = -1
 
-        self.target_type = -1
-        self.obj_type = -1
+        self.target_obj = -1
+        self.obj = -1
 
         self.target_index = 0
         self.obj_index = 0
@@ -299,11 +321,11 @@ class StackEnv(GenericEnv):
         # self.debug_items = []
         self.traj_t = 1.5
 
-    def random_ori(self, o_type):
+    def random_ori(self, obj):
         x_ori = 0.
         y_ori = 0.
         z_ori = np.random.uniform(0., np.pi)
-        if o_type == 8 or o_type == 10:  # horizontal objects
+        if obj == 8 or obj == 10:  # horizontal objects
             x_ori = np.pi / 2
 
         orientation = [x_ori, y_ori, z_ori]
@@ -311,14 +333,14 @@ class StackEnv(GenericEnv):
 
     def initialize(self):
         self.init_agent_pose(t=1)
-        target_type = self.obj_types[self.target_index]  # target object
-        obj_type = self.obj_types[self.obj_index]  # moving object
-        self.target_type = target_type
-        self.obj_type = obj_type
+        target_obj = self.objects[self.target_index]  # target object
+        obj = self.objects[self.obj_index]  # moving object
+        self.target_obj = target_obj
+        self.obj = obj
 
-        self.target_id, _ = self.init_object(obj_type=target_type,
-                                             orientation=self.random_ori(self.target_type))
-        self.obj_id, _ = self.init_object(obj_type=obj_type, orientation=self.random_ori(self.obj_type))
+        self.target_id, _ = self.init_object(obj=target_obj,
+                                             orientation=self.random_ori(self.target_obj))
+        self.obj_id, _ = self.init_object(obj=obj, orientation=self.random_ori(self.obj))
 
         while True:  # check collision
             contacts = self._p.getClosestPoints(self.target_id, self.obj_id, distance=0.05)
@@ -330,51 +352,51 @@ class StackEnv(GenericEnv):
                                                     [np.random.uniform(self.x_range[0], self.x_range[1], size=1),
                                                      np.random.uniform(self.y_range[0], self.y_range[1], size=1),
                                                      self.z],
-                                                    self._p.getQuaternionFromEuler(self.random_ori(self.obj_type)))
+                                                    self._p.getQuaternionFromEuler(self.random_ori(self.obj)))
 
         self._step(self.num_steps)
         self.agent.open_gripper(1, sleep=True)
 
-    def reset_object(self, changeTargetType=False, changeType=False, sleep=False):
-        if changeTargetType:
+    def reset_object(self, changeTargetObj=False, changeObj=False, sleep=False):
+        if changeTargetObj:
             self._p.removeBody(self.target_id)
             self.target_index += 1
-            self.target_type = self.obj_types[self.target_index]
-            self.target_id, _ = self.init_object(obj_type=self.target_type,
-                                                 orientation=self.random_ori(self.target_type))
+            self.target_obj = self.objects[self.target_index]
+            self.target_id, _ = self.init_object(obj=self.target_obj,
+                                                 orientation=self.random_ori(self.target_obj))
 
             self._p.removeBody(self.obj_id)
             self.obj_index = 0
-            self.obj_type = self.obj_types[self.obj_index]
-            self.obj_id, _ = self.init_object(obj_type=self.obj_type,
-                                              orientation=self.random_ori(self.obj_type))
+            self.obj = self.objects[self.obj_index]
+            self.obj_id, _ = self.init_object(obj=self.obj,
+                                              orientation=self.random_ori(self.obj))
 
-        elif changeType:
+        elif changeObj:
             self._p.removeBody(self.obj_id)
             self.obj_index += 1
-            self.obj_type = self.obj_types[self.obj_index]
-            self.obj_id, _ = self.init_object(obj_type=self.obj_type,
-                                              orientation=self.random_ori(self.obj_type))
+            self.obj = self.objects[self.obj_index]
+            self.obj_id, _ = self.init_object(obj=self.obj,
+                                              orientation=self.random_ori(self.obj))
 
             # do not change target type but change position & orientation
             self._p.resetBasePositionAndOrientation(self.target_id,
                                                     [np.random.uniform(self.x_range[0], self.x_range[1], size=1),
                                                      np.random.uniform(self.y_range[0], self.y_range[1], size=1),
                                                      self.z],
-                                                    self._p.getQuaternionFromEuler(self.random_ori(self.target_type)))
+                                                    self._p.getQuaternionFromEuler(self.random_ori(self.target_obj)))
 
         else:  # new random positions
             self._p.resetBasePositionAndOrientation(self.target_id,
                                                     [np.random.uniform(self.x_range[0], self.x_range[1], size=1),
                                                      np.random.uniform(self.y_range[0], self.y_range[1], size=1),
                                                      self.z],
-                                                    self._p.getQuaternionFromEuler(self.random_ori(self.target_type)))
+                                                    self._p.getQuaternionFromEuler(self.random_ori(self.target_obj)))
 
             self._p.resetBasePositionAndOrientation(self.obj_id,
                                                     [np.random.uniform(self.x_range[0], self.x_range[1], size=1),
                                                      np.random.uniform(self.y_range[0], self.y_range[1], size=1),
                                                      self.z],
-                                                    self._p.getQuaternionFromEuler(self.random_ori(self.obj_type)))
+                                                    self._p.getQuaternionFromEuler(self.random_ori(self.obj)))
 
         while True:
             contacts = self._p.getClosestPoints(self.target_id, self.obj_id, distance=0.05)
@@ -386,34 +408,52 @@ class StackEnv(GenericEnv):
                                                     [np.random.uniform(self.x_range[0], self.x_range[1], size=1),
                                                      np.random.uniform(self.y_range[0], self.y_range[1], size=1),
                                                      self.z],
-                                                    self._p.getQuaternionFromEuler(self.random_ori(self.obj_type)))
+                                                    self._p.getQuaternionFromEuler(self.random_ori(self.obj)))
 
         self.agent._waitsleep(0.5, sleep=sleep)
 
-    def get_obj_info(self, obj_id=True):
-        target_pos, target_ori = self._p.getBasePositionAndOrientation(self.target_id)
-        obj_pos, obj_ori = self._p.getBasePositionAndOrientation(self.obj_id)
-        if obj_id:
-            return {'target': np.hstack(
-                (list(target_pos), list(self._p.getEulerFromQuaternion(target_ori)),
-                 self.encoded_ids[self.target_type])),
-                'object': np.hstack(
-                    (list(obj_pos), list(self._p.getEulerFromQuaternion(obj_ori)), self.encoded_ids[self.obj_type]))}
+    def get_obj_info(self, obj=False):
+        target_pose = np.zeros(9, dtype=np.float32)
+        obj_pose = np.zeros(9, dtype=np.float32)
+
+        target_loc, target_quat = self._p.getBasePositionAndOrientation(self.target_id)
+        obj_loc, obj_quat = self._p.getBasePositionAndOrientation(self.obj_id)
+        euler_angles_target = self._p.getEulerFromQuaternion(target_quat)
+        euler_angles_obj = self._p.getEulerFromQuaternion(obj_quat)
+
+        target_pose[:3] = target_loc
+        target_pose[3:] = [np.cos(euler_angles_target[0]), np.sin(euler_angles_target[0]),
+                           np.cos(euler_angles_target[1]), np.sin(euler_angles_target[1]),
+                           np.cos(euler_angles_target[2]), np.sin(euler_angles_target[2])]
+        obj_pose[:3] = obj_loc
+        obj_pose[3:] = [np.cos(euler_angles_obj[0]), np.sin(euler_angles_obj[0]),
+                        np.cos(euler_angles_obj[1]), np.sin(euler_angles_obj[1]),
+                        np.cos(euler_angles_obj[2]), np.sin(euler_angles_obj[2])]
+
+        if obj:
+            return {'target': np.hstack((target_pose, self.encoded_ids[self.target_obj])),
+                    'object': np.hstack((obj_pose, self.encoded_ids[self.obj]))}
         else:
-            return {'target': np.hstack((list(target_pos), list(self._p.getEulerFromQuaternion(target_ori)))),
-                    'object': np.hstack((list(obj_pos), list(self._p.getEulerFromQuaternion(obj_ori))))}
+            return {'target': target_pose,
+                    'object': obj_pose}
+
+    def segment_obj_(self, seg):  # inplace modification!!!
+        seg[seg == self.env_dict["table"]] = 0  # background
+        seg[seg == self.target_id] = np.argmax(self.encoded_ids[self.target_obj]) + 1  # target object
+        seg[seg == self.obj_id] = np.argmax(self.encoded_ids[self.obj]) + 1  # object
 
     def step(self, angle, sleep=False):
+        _, obj_quat = self._p.getBasePositionAndOrientation(self.obj_id)
         img_pre, state_pre = self.state()
+        """ inplace operation below, be careful"""
+        self.segment_obj_(img_pre)
 
         grap_obj_loc = state_pre['object'][:3]
-        grap_ori_euler = state_pre['object'][3:6]
+        grap_ori_euler = self._p.getEulerFromQuaternion(obj_quat)
         target_obj_loc = state_pre['target'][:3]
 
-        state_pre = np.hstack((state_pre['target'], state_pre['object']))   # get only value
-
-        z_angle = math.degrees(grap_ori_euler[2])
-        quat1 = self._p.getQuaternionFromEuler([np.pi, 0., grap_ori_euler[2] - np.pi/2])
+        state_pre = np.hstack((state_pre['target'], state_pre['object']))  # get only value
+        quat1 = self._p.getQuaternionFromEuler([np.pi, 0., grap_ori_euler[2] - np.pi / 2])
         grap_obj_loc[2] -= 0.01
         target_obj_loc[2] -= 0.01
 
@@ -438,11 +478,18 @@ class StackEnv(GenericEnv):
 
         self.init_agent_pose(0.25, sleep=sleep)
         self.agent._waitsleep(1, sleep=sleep)
-        img_post, state_post = self.state(obj_id=False)
-        state_post = np.hstack((state_post['target'], state_post['object']))   # get only value
+        img_post, state_post = self.state()
+        """ inplace operation below, be careful"""
+        self.segment_obj_(img_post)
+        state_post = np.hstack((state_post['target'], state_post['object']))  # get only value
 
-        return [math.sin(grap_ori_euler[2]), math.cos(grap_ori_euler[2])], (img_pre, state_pre), (img_post, state_post)
-        # sin and cosine of object's roll (in radian) as action
+        pose_delta = np.hstack((state_post[:9] - state_pre[:9],  # target obj displacement (pos, ori)
+                                state_post[9:] - state_pre[9:]))  # moving obj displacement (pos, ori)
+
+        from_to_encode = np.hstack((self.encoded_ids[self.target_obj], self.encoded_ids[self.obj]))
+
+        return from_to_encode, (img_pre, state_pre), (
+            img_post, state_post), pose_delta
 
     def close(self):
         self._p.removeBody(self.agent.id)
