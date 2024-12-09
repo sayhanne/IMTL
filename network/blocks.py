@@ -6,14 +6,41 @@ import torch
 
 
 def getTotalActivation(act):
-    return np.sum(np.abs(act))
+    return np.mean(np.abs(act))
 
 
-class Linear(torch.nn.Module):
+class Avg(torch.nn.Module):
+    def __init__(self, dims):
+        super(Avg, self).__init__()
+        self.dims = dims
+
+    def forward(self, x):
+        return x.mean(dim=self.dims)
+
+    def extra_repr(self):
+        return "dims=[" + ", ".join(list(map(str, self.dims))) + "]"
+
+
+class Flatten(torch.nn.Module):
+    def __init__(self, dims):
+        super(Flatten, self).__init__()
+        self.dims = dims
+
+    def forward(self, x):
+        dim = 1
+        for d in self.dims:
+            dim *= x.shape[d]
+        return x.reshape(-1, dim)
+
+    def extra_repr(self):
+        return "dims=[" + ", ".join(list(map(str, self.dims))) + "]"
+
+
+class DenseLayer(torch.nn.Module):
     """ linear layer with optional batch normalization. """
 
     def __init__(self, in_features, out_features, std=None, batch_norm=False, gain=None):
-        super(Linear, self).__init__()
+        super(DenseLayer, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
         self.weight = torch.nn.Parameter(torch.Tensor(out_features, in_features))
@@ -34,11 +61,11 @@ class Linear(torch.nn.Module):
             self.bias.data.zero_()
 
     def forward(self, x):
-        x = torch.nn.functional.linear(x, self.weight, self.bias)
+        y = torch.nn.functional.linear(x, self.weight, self.bias)
         if hasattr(self, "batch_norm"):
-            x = self.batch_norm(x)
-        self.activation_out = getTotalActivation(x.detach().cpu().numpy())
-        return x
+            y = self.batch_norm(y)
+        self.activation_out = getTotalActivation(y.detach().cpu().numpy())
+        return y
 
     def extra_repr(self):
         return "in_features={}, out_features={}".format(self.in_features, self.out_features)
@@ -56,10 +83,10 @@ class MLP(torch.nn.Module):
                 layers.append(torch.nn.Dropout(indrop))
             elif i > 0 and hiddrop:
                 layers.append(torch.nn.Dropout(hiddrop))
-            layers.append(Linear(in_features=in_dim, out_features=unit, std=std, batch_norm=batch_norm, gain=2))
+            layers.append(DenseLayer(in_features=in_dim, out_features=unit, std=std, batch_norm=batch_norm, gain=2))
             layers.append(activation)
             in_dim = unit
-        layers.append(Linear(in_features=in_dim, out_features=layer_info[-1], batch_norm=False))
+        layers.append(DenseLayer(in_features=in_dim, out_features=layer_info[-1], batch_norm=False))
         self.layers = torch.nn.Sequential(*layers)
 
     def forward(self, x):
@@ -81,6 +108,7 @@ class ConvBlock(torch.nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, std=None, bias=True,
                  batch_norm=False):
         super(ConvBlock, self).__init__()
+        self.activation_out = None
         self.block = [torch.nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size,
                                       stride=stride, padding=padding, bias=bias)]
         if batch_norm:
@@ -93,7 +121,9 @@ class ConvBlock(torch.nn.Module):
         self.block = torch.nn.Sequential(*self.block)
 
     def forward(self, x):
-        return self.block(x)
+        y = self.block(x)
+        self.activation_out = getTotalActivation(y.detach().cpu().numpy())
+        return y
 
 
 class MultiHeadAttnLayer(torch.nn.Module):
@@ -104,3 +134,44 @@ class MultiHeadAttnLayer(torch.nn.Module):
     def forward(self, query, key, value):
         attn_output, attn_weights = self.attention(query, key, value)
         return attn_output
+
+
+def build_state_encoder(config, shared=False, task_idx=-1):
+    if shared:
+        out_dim = config["hidden_dim"]
+    else:
+        out_dim = config["rep_state"]
+    if "cnn" in config:
+        if config["cnn"]:
+            L = len(config["filters"]) - 1
+            stride = 2
+            encoder = []
+            for i in range(L):
+                encoder.append(ConvBlock(in_channels=config["filters"][i],
+                                         out_channels=config["filters"][i + 1],
+                                         kernel_size=3, stride=1, padding=1, batch_norm=config["batch_norm"]))
+                encoder.append(ConvBlock(in_channels=config["filters"][i + 1],
+                                         out_channels=config["filters"][i + 1],
+                                         kernel_size=3, stride=stride, padding=1, batch_norm=config["batch_norm"]))
+            encoder.append(Avg([2, 3]))
+            encoder.append(MLP([config["filters"][-1], out_dim]))
+        else:
+            encoder = [
+                Flatten([1, 2, 3]),
+                MLP(layer_info=[config["in_size"] ** 2] + [config["hidden_dim"]] * config["enc_depth_state"] + [
+                    out_dim],
+                    batch_norm=config["batch_norm"])]
+    else:   # not cnn
+        if shared:
+            # there will be a projection layer before this mlp encoder
+            encoder = [MLP(
+                layer_info=[config["hidden_dim"]] * config["enc_depth_state"] + [out_dim],
+                batch_norm=config["batch_norm"])]
+        else:
+            encoder = [MLP(
+                layer_info=[config["in_size"][task_idx]] + [config["hidden_dim"]] * config["enc_depth_state"] + [
+                    out_dim],
+                batch_norm=config["batch_norm"])]
+
+    encoder = torch.nn.Sequential(*encoder)
+    return encoder

@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from network.blocks import MLP, Linear, MultiHeadAttnLayer
+from network.blocks import MLP, MultiHeadAttnLayer, build_state_encoder
 from network.utils.helper import LossUtils, EnergyUtils, TaskSelectionUtils
 
 
@@ -28,6 +28,7 @@ class EffectPrediction(nn.Module):
         self.device = torch.device(config["device"])
         self.criterion = torch.nn.L1Loss()
         self.task_ids = np.arange(0, config["num_tasks"])
+        self.proj_ = "cnn" not in config
         self.encoder = self.build_encoder(config).to(self.device)
         self.decoder = self.build_decoder(config).to(self.device)
         self.optimizer = torch.optim.AdamW(lr=config["learning_rate"],
@@ -56,10 +57,6 @@ class EffectPrediction(nn.Module):
     def _train_mode(self, task_id, train_mode=True):
         raise NotImplementedError
 
-    # Function to pad input to match the required dimension
-    def pad_input(self, input_data):
-        raise NotImplementedError
-
     def one_pass_others(self, winner, loader):
         raise NotImplementedError
 
@@ -69,15 +66,17 @@ class EffectPrediction(nn.Module):
     def freeze_task(self, task_id, unfreeze=False):
         raise NotImplementedError
 
-    def freeze_lvl1(self, unfreeze=False):
+    def freeze_shared(self, unfreeze=False):
         raise NotImplementedError
 
     def loss(self, task_id, state, effect, action):
         raise NotImplementedError
 
     def forward_mb(self, task_id, sample_state, sample_effect, sample_action):
-        state_pad = self.pad_input(input_data=sample_state)  # pad with zeros if needed
-        state = state_pad.to(self.device)
+        if self.proj_:
+            state = sample_state.to(self.device)
+        else:
+            state = sample_state.unsqueeze(1).to(self.device)  # when input is img convert shape into (N, C, H, W)
         action = sample_action.to(self.device)
         effect = sample_effect.to(self.device)
         loss = self.loss(task_id, state, effect, action)
@@ -143,7 +142,7 @@ class EffectPrediction(nn.Module):
 
         winner_id = self.get_next()
         best_loss = 1e6
-        self.freeze_lvl1(unfreeze=True)  # for multitask models, this is required, others pass
+        self.freeze_shared(unfreeze=True)  # for multitask models, this is required, others pass
         for e in range(1, self.num_epochs + 1):
             self.freeze_task(task_id=winner_id, unfreeze=True)
             self.one_epoch_optimize(task_id=winner_id, loader=train_loaders[winner_id])
@@ -227,12 +226,12 @@ class EffectPrediction(nn.Module):
     def sum_dense_activations(self, task_id):
         total_activation_sum = (self.sum_dense_activations_aux(self.encoder[task_id]) +
                                 self.sum_dense_activations_aux(self.decoder[task_id]))
-        return total_activation_sum / 1e3
+        return total_activation_sum
 
     def sum_dense_activations_aux(self, model):
         total_activation_sum = 0
         for module in model.children():
-            if isinstance(module, Linear):
+            if hasattr(module, 'activation_out'):
                 if module.activation_out is not None:
                     total_activation_sum += module.activation_out
             else:
@@ -266,14 +265,12 @@ class SingleTask(EffectPrediction):
         num_tasks = config["num_tasks"]
         task_encoders = nn.ModuleList()
         for n in range(num_tasks):
-            lvl1encoder = MLP(layer_info=[config["in_size"][n]] + [config["hidden_dim"]] * config["enc_depth_lvl1"],
-                              batch_norm=config["batch_norm"])
-            lvl2encoder = MLP(layer_info=[config["hidden_dim"]] * config["enc_depth_lvl2"] + [config["rep_dim"]],
-                              batch_norm=config["batch_norm"])
-            attn_layer = MultiHeadAttnLayer(embed_dim=config["rep_dim"] + config["action_dim"],
+            state_encoder = build_state_encoder(config=config, task_idx=n)
+            action_encoder = MLP(layer_info=[config["action_size"][n], config["rep_action"]])
+            attn_layer = MultiHeadAttnLayer(embed_dim=config["rep_state"] + config["rep_action"],
                                             num_heads=config["num_heads"])
-            encoder = nn.Sequential(OrderedDict([("lvl1encoder", lvl1encoder),
-                                                 ("lvl2encoder", lvl2encoder),
+            encoder = nn.Sequential(OrderedDict([("state_encoder", state_encoder),
+                                                 ("action_encoder", action_encoder),
                                                  ("attn_layer", attn_layer)]))
             task_encoders.append(encoder)
         return task_encoders
@@ -282,19 +279,14 @@ class SingleTask(EffectPrediction):
         num_tasks = config["num_tasks"]
         task_decoders = nn.ModuleList()
         for n in range(num_tasks):
-            # lvl1decoder = MLP(layer_info=[config["rep_dim"] + config["action_dim"]] + [config["hidden_dim"]] * config[
-            #     "dec_depth_shared"],
-            #                   batch_norm=config["batch_norm"])
-            lvl2decoder = MLP(
-                layer_info=[config["rep_dim"] + config["action_dim"]] + [config["hidden_dim"]] * config[
-                    "dec_depth_lvl2"] + [config["out_size"][n]],
+            effect_decoder = MLP(
+                layer_info=[config["rep_state"] + config["rep_action"]] +
+                           [config["hidden_dim"]] * config["dec_depth_effect"] +
+                           [config["out_size"][n]],
                 batch_norm=config["batch_norm"])
-            decoder = nn.Sequential(OrderedDict([("lvl2decoder", lvl2decoder)]))
+            decoder = nn.Sequential(OrderedDict([("effect_decoder", effect_decoder)]))
             task_decoders.append(decoder)
         return task_decoders
-
-    def pad_input(self, input_data):
-        return input_data
 
     def _train_mode(self, task_id, train_mode=True):
         if train_mode:
@@ -305,17 +297,14 @@ class SingleTask(EffectPrediction):
             self.decoder[task_id].eval()
 
     def loss(self, task_id, state, effect, action):
-        lvl1_code = self.encoder[task_id].lvl1encoder(state)
-        task_code = self.encoder[task_id].lvl2encoder(lvl1_code)
-        rep = torch.cat([task_code, action], dim=-1).unsqueeze(0)
-        keys = rep.clone()
-        values = rep.clone()
-        query = rep.clone()
+        state_code = self.encoder[task_id].state_encoder(state)
+        action_code = self.encoder[task_id].action_encoder(action)
+        action_state = torch.cat([state_code, action_code], dim=-1).unsqueeze(0)
+        keys = action_state.clone()
+        values = action_state.clone()
+        query = action_state.clone()
         h_attn = self.encoder[task_id].attn_layer(query, keys, values).squeeze(0)
         effect_pred = self.decoder[task_id](h_attn)
-        # h = self.encoder[task_id](state)
-        # h_aug = torch.cat([h, action], dim=-1)
-        # effect_pred = self.decoder[task_id](h_aug)
         return self.criterion(effect_pred, effect)
 
     def one_pass_others(self, winner, loader):
@@ -330,92 +319,91 @@ class SingleTask(EffectPrediction):
         for param in self.decoder[task_id].parameters():
             param.requires_grad = unfreeze
 
-    def freeze_lvl1(self, unfreeze=False):
+    def freeze_shared(self, unfreeze=False):
         pass
 
 
 class MultiTask(EffectPrediction):
     def __init__(self, seed, config):
         super(MultiTask, self).__init__(seed, config)
-        self.input_dim = max(config["in_size"])
 
     def build_encoder(self, config):
         num_tasks = config["num_tasks"]
         task_encoders = nn.ModuleList()
-        in_size = max(config["in_size"])
-        enc_hidden_dim = config["hidden_dim"] * 2
-        # Shared encoder
-        lvl1encoder = MLP(layer_info=[in_size] + [enc_hidden_dim] * (config["enc_depth_lvl1"] - 1) +
-                                     [config["hidden_dim"]],
-                          batch_norm=config["batch_norm"])
 
-        # Shared attention layer
-        attn_layer = MultiHeadAttnLayer(embed_dim=1 + config["rep_dim"] + config["action_dim"],
+        # Shared encoder and multi-head attention layer
+        state_encoder = build_state_encoder(config=config, shared=True)
+        attn_layer = MultiHeadAttnLayer(embed_dim=config["rep_state"] + config["rep_action"] + 1,  # +1 for flag
                                         num_heads=config["num_heads"])
         for n in range(num_tasks):
-            lvl2encoder = MLP(layer_info=[config["hidden_dim"]] * config["enc_depth_lvl2"] + [config["rep_dim"]],
+            sub_encoder = MLP(layer_info=[config["hidden_dim"]] * config["enc_depth_sub"] + [config["rep_state"]],
                               batch_norm=config["batch_norm"])
-            encoder = nn.Sequential(OrderedDict([("lvl1encoder", lvl1encoder),
-                                                 ("lvl2encoder", lvl2encoder),
-                                                 ("attn_layer", attn_layer)]))
+            action_encoder = MLP(layer_info=[config["action_size"][n], config["rep_action"]])
+            encoder_dict = OrderedDict([("state_encoder", state_encoder),  # shared
+                                        ("sub_encoder", sub_encoder),
+                                        ("action_encoder", action_encoder),
+                                        ("attn_layer", attn_layer)])
+            if self.proj_:
+                proj_layer = MLP(layer_info=[config["in_size"][n], config["hidden_dim"]])
+                encoder_dict.update({"proj_layer": proj_layer})
+                encoder_dict.move_to_end("proj_layer", last=False)
+
+            encoder = nn.Sequential(encoder_dict)
             task_encoders.append(encoder)
         return task_encoders
 
     def build_decoder(self, config):
         num_tasks = config["num_tasks"]
         task_decoders = nn.ModuleList()
-        # Shared decoder
-        # lvl1decoder = MLP(layer_info=[config["rep_dim"] + config["action_dim"]] + [config["hidden_dim"]] * config[
-        #     "dec_depth_lvl1"],
-        #                   batch_norm=config["batch_norm"])
         for n in range(num_tasks):
-            lvl2decoder = MLP(layer_info=[1 + config["rep_dim"] + config["action_dim"]] +
-                                         [config["hidden_dim"]] * config["dec_depth_lvl2"] + [config["out_size"][n]],
-                              batch_norm=config["batch_norm"])
-            decoder = nn.Sequential(OrderedDict([("lvl2decoder", lvl2decoder)]))
+            effect_decoder = MLP(layer_info=[config["rep_state"] + config["rep_action"] + 1] +
+                                            [config["hidden_dim"]] * config["dec_depth_effect"] +
+                                            [config["out_size"][n]],
+                                 batch_norm=config["batch_norm"])
+            decoder = nn.Sequential(OrderedDict([("effect_decoder", effect_decoder)]))
             task_decoders.append(decoder)
         return task_decoders
 
-    def pad_input(self, input_data):
-        current_dim = input_data.size(1)
-        if current_dim < self.input_dim:
-            padding_size = self.input_dim - current_dim
-            padded_input = torch.cat([input_data, torch.zeros(input_data.size(0), padding_size)], dim=1)
-        else:
-            padded_input = input_data
-        return padded_input
-
-    def _train_mode(self, task_id, train_mode=True):
+    def _train_mode(self, task_id, train_mode=True):  # Task specific parts only
         if train_mode:
-            self.encoder[task_id].lvl2encoder.train()
-            self.decoder[task_id].lvl2decoder.train()
+            if self.proj_:
+                self.encoder[task_id].proj_layer.train()
+            self.encoder[task_id].sub_encoder.train()
+            self.encoder[task_id].action_encoder.train()
+            self.decoder[task_id].train()
         else:
-            self.encoder[task_id].lvl2encoder.eval()
-            self.decoder[task_id].lvl2decoder.eval()
+            if self.proj_:
+                self.encoder[task_id].proj_layer.eval()
+            self.encoder[task_id].sub_encoder.eval()
+            self.encoder[task_id].action_encoder.eval()
+            self.decoder[task_id].eval()
 
     def loss(self, task_id, state, effect, action):
-        lvl1_code = self.encoder[task_id].lvl1encoder(state)  # shared encoder
+        if self.proj_:
+            state = self.encoder[task_id].proj_layer(state)
+        state_code = self.encoder[task_id].state_encoder(state)  # shared encoder
+        task_action_code = self.encoder[task_id].action_encoder(action)
         task_reprs = []
         for idx in self.task_ids:
             if idx != task_id:
                 with torch.no_grad():  # Frozen, no gradients computed
-                    task_code = self.encoder[idx].lvl2encoder(lvl1_code)  # task specific encoder
-                    flag = torch.FloatTensor(torch.zeros([task_code.shape[0], 1])).to(self.device)
-                    rep = torch.cat([flag, task_code, action], dim=-1)
+                    task_state_code = self.encoder[idx].sub_encoder(state_code)
+                    flag = torch.FloatTensor(torch.zeros([task_state_code.shape[0], 1])).to(self.device)
+                    rep = torch.cat([task_state_code, task_action_code, flag], dim=-1)
             else:  # trainable
-                task_code = self.encoder[idx].lvl2encoder(lvl1_code)
-                flag = torch.FloatTensor(torch.ones([task_code.shape[0], 1])).to(self.device)
-                rep = torch.cat([flag, task_code, action], dim=-1)
-            task_reprs.append(rep.unsqueeze(0))  # rep shape: (1, batch_size, (1 + rep_dim + action_dim))
+                task_state_code = self.encoder[idx].sub_encoder(state_code)
+                flag = torch.FloatTensor(torch.ones([task_state_code.shape[0], 1])).to(self.device)
+                rep = torch.cat([task_state_code, task_action_code, flag], dim=-1)
+            task_reprs.append(rep.unsqueeze(0))  # rep shape: (1, batch_size, (1 + rep_state + rep_action))
 
-        keys = torch.cat(task_reprs, dim=0)  # Shape: (num_tasks, batch_size, (1 + rep_dim + action_dim))
+        keys = torch.cat(task_reprs, dim=0)  # Shape: (num_tasks, batch_size, (1 + rep_state + rep_action))
         values = keys.clone()
 
         # Query is from current task's representation
-        query = task_reprs[task_id].clone()  # query shape: (1, batch_size, (1 + rep_dim + action_dim))
+        query = keys.clone()  # query shape: (1, batch_size, (1 + rep_state + rep_action))
         h_attn = self.encoder[task_id].attn_layer(query, keys, values).squeeze(
             0)  # Shape: (batch_size, (1 + rep_dim + action_dim))
-        effect_pred = self.decoder[task_id](h_attn)
+        effect_pred = self.decoder[task_id](h_attn[task_id])
         return self.criterion(effect_pred, effect)
 
     def one_pass_others(self, winner, loader):
@@ -436,44 +424,49 @@ class MultiTask(EffectPrediction):
 
         return self.selection_util.get_winner()
 
-    def freeze_task(self, task_id, unfreeze=False):  # Only freeze/unfreeze task specific parts (lvl2).
-        for param in self.encoder[task_id].lvl2encoder.parameters():
+    def freeze_task(self, task_id, unfreeze=False):  # Only freeze/unfreeze task specific parts.
+        if self.proj_:
+            for param in self.encoder[task_id].proj_layer.parameters():
+                param.requires_grad = unfreeze
+        for param in self.encoder[task_id].sub_encoder.parameters():
             param.requires_grad = unfreeze
-        for param in self.decoder[task_id].lvl2decoder.parameters():
+        for param in self.encoder[task_id].action_encoder.parameters():
+            param.requires_grad = unfreeze
+        for param in self.decoder[task_id].parameters():
             param.requires_grad = unfreeze
 
-    def freeze_lvl1(self, unfreeze=False):
-        for param in self.encoder[0].lvl1encoder.parameters():  # shared encoder
+    def freeze_shared(self, unfreeze=False):
+        for param in self.encoder[0].state_encoder.parameters():  # shared state encoder
             param.requires_grad = unfreeze
         for param in self.encoder[0].attn_layer.parameters():  # shared attention layer
             param.requires_grad = unfreeze
-        # for param in self.decoder[0].lvl1decoder.parameters():  # shared decoder
-        #     param.requires_grad = unfreeze
-        self.encoder[0].lvl1encoder.train()
-        self.encoder[0].attn_layer.train()
-        # self.decoder[0].lvl1decoder.train()
+        if unfreeze:
+            self.encoder[0].state_encoder.train()
+            self.encoder[0].attn_layer.train()
+        else:
+            self.encoder[0].state_encoder.eval()
+            self.encoder[0].attn_layer.eval()
 
-
-class BlockedMultiTask(MultiTask):
-    def __init__(self, seed, config):
-        super(BlockedMultiTask, self).__init__(seed, config)
-
-    def train_(self, train_loaders, val_loaders):
-        winner_id = self.get_next()
-        self.freeze_lvl1(unfreeze=True)  # for multitask models, this is required, others pass
-        self.freeze_task(task_id=winner_id, unfreeze=True)
-        trained_tasks = []
-        for e in range(1, self.num_epochs + 1):
-            self.one_epoch_optimize(task_id=winner_id, loader=train_loaders[winner_id])
-            self.evaluate_epoch(task_id=winner_id, loader=val_loaders[winner_id])
-            for idx in trained_tasks:
-                self.evaluate_epoch(task_id=idx, loader=train_loaders[idx], val_=False)
-                self.evaluate_epoch(task_id=idx, loader=val_loaders[idx])
-            next_winner = self.get_next()
-            if winner_id != next_winner:
-                self.freeze_task(task_id=winner_id)
-                self.freeze_task(task_id=next_winner, unfreeze=True)
-                trained_tasks.append(winner_id)
-            winner_id = next_winner
-            self.loss_util.update_loss_plot()
-            self.energy_util.update_energy_plot()
+# class BlockedMultiTask(MultiTask):
+#     def __init__(self, seed, config):
+#         super(BlockedMultiTask, self).__init__(seed, config)
+#
+#     def train_(self, train_loaders, val_loaders):
+#         winner_id = self.get_next()
+#         self.freeze_shared(unfreeze=True)  # for multitask models, this is required, others pass
+#         self.freeze_task(task_id=winner_id, unfreeze=True)
+#         trained_tasks = []
+#         for e in range(1, self.num_epochs + 1):
+#             self.one_epoch_optimize(task_id=winner_id, loader=train_loaders[winner_id])
+#             self.evaluate_epoch(task_id=winner_id, loader=val_loaders[winner_id])
+#             for idx in trained_tasks:
+#                 self.evaluate_epoch(task_id=idx, loader=train_loaders[idx], val_=False)
+#                 self.evaluate_epoch(task_id=idx, loader=val_loaders[idx])
+#             next_winner = self.get_next()
+#             if winner_id != next_winner:
+#                 self.freeze_task(task_id=winner_id)
+#                 self.freeze_task(task_id=next_winner, unfreeze=True)
+#                 trained_tasks.append(winner_id)
+#             winner_id = next_winner
+#             self.loss_util.update_loss_plot()
+#             self.energy_util.update_energy_plot()
