@@ -78,6 +78,8 @@ class MLP(torch.nn.Module):
         super(MLP, self).__init__()
         layers = []
         in_dim = layer_info[0]
+        if activation is None:
+            activation = (lambda x: x)
         for i, unit in enumerate(layer_info[1:-1]):
             if i == 0 and indrop:
                 layers.append(torch.nn.Dropout(indrop))
@@ -127,13 +129,18 @@ class ConvBlock(torch.nn.Module):
 
 
 class MultiHeadAttnLayer(torch.nn.Module):
-    def __init__(self, embed_dim, num_heads=1):
+    def __init__(self, embed_dim, num_heads=1, num_layers=1):
         super(MultiHeadAttnLayer, self).__init__()
-        self.attention = torch.nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads)
+        self.attention_layers = torch.nn.ModuleList([torch.nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads)
+                                                     for _ in range(num_layers)])
 
     def forward(self, query, key, value):
-        attn_output, attn_weights = self.attention(query, key, value)
-        return attn_output
+        # Sequentially pass query, key, and value through each attention layer
+        for layer in self.attention_layers:
+            attn_output, attn_weights = layer(query, key, value)
+            # Update query, key, and value with the output for the next layer
+            query = key = value = attn_output
+        return attn_output  # Return the output of the last layer
 
 
 def build_state_encoder(config, shared=False, task_idx=-1):
@@ -165,11 +172,11 @@ def build_state_encoder(config, shared=False, task_idx=-1):
         if shared:
             # there will be a projection layer before this mlp encoder
             encoder = [MLP(
-                layer_info=[config["hidden_dim"]] * config["enc_depth_state"] + [out_dim],
+                layer_info=[config["hidden_dim"]] * (config["enc_depth_state"] - 1) + [out_dim],
                 batch_norm=config["batch_norm"])]
         else:
             encoder = [MLP(
-                layer_info=[config["in_size"][task_idx]] + [config["hidden_dim"]] * config["enc_depth_state"] + [
+                layer_info=[config["in_size"][task_idx]] + [config["hidden_dim"]] * (config["enc_depth_state"] - 1) + [
                     out_dim],
                 batch_norm=config["batch_norm"])]
 

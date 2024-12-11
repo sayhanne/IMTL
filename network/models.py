@@ -400,10 +400,10 @@ class MultiTask(EffectPrediction):
         values = keys.clone()
 
         # Query is from current task's representation
-        query = keys.clone()  # query shape: (1, batch_size, (1 + rep_state + rep_action))
+        query = task_reprs[task_id].clone()  # query shape: (1, batch_size, (1 + rep_state + rep_action))
         h_attn = self.encoder[task_id].attn_layer(query, keys, values).squeeze(
             0)  # Shape: (batch_size, (1 + rep_dim + action_dim))
-        effect_pred = self.decoder[task_id](h_attn[task_id])
+        effect_pred = self.decoder[task_id](h_attn)
         return self.criterion(effect_pred, effect)
 
     def one_pass_others(self, winner, loader):
