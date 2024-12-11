@@ -94,26 +94,14 @@ class TaskSelectionUtils:
                 self.sequence = None
 
     def calculate_lp(self, loss, index):
-        # y = loss[-5:]
-        # x = range(1, 6)
-        # slope = np.polyfit(x, y, deg=1)[0]
-        # if slope < 0.:
-        #     self.current_lp[index] = math.fabs(slope)
-        y = loss[-1]
-        y_pre = loss[-5]
-        lp = (y_pre - y) / y_pre
-        self.current_lp[index] = lp
+        y = loss[-3:]
+        x = range(1, 4)
+        slope = np.polyfit(x, y, deg=1)[0]
+        self.current_lp[index] = -slope
 
     def calculate_ep(self, energy, index):
-        # y = loss[-5:]
-        # x = range(1, 6)
-        # slope = np.polyfit(x, y, deg=1)[0]
-        # if slope < 0.:
-        #     self.current_lp[index] = math.fabs(slope)
-        y = energy[-1]
-        y_pre = energy[-5]
-        ep = (y_pre - y) / y_pre
-        self.current_ep[index] = ep
+        y = energy[-5:]
+        self.current_ep[index] = np.mean(y)
 
     def save_lp(self):
         for i, progress in enumerate(self.current_lp):
@@ -137,7 +125,7 @@ class TaskSelectionUtils:
             if self.selection == "lp":
                 winner_index = np.argsort(self.current_lp)[::-1][0]  # Highest lp
             elif self.selection == "lpe":
-                combined = np.asarray(self.current_lp) / np.asarray(self.current_ep)
+                combined = np.asarray(self.current_lp) * np.exp(-0.1 * np.asarray(self.current_ep))
                 winner_index = np.argsort(combined)[::-1][0]  # Highest lpe
             selected = np.random.choice(a=[winner_index, -1], p=[1 - self.e, self.e])
             if selected == -1:

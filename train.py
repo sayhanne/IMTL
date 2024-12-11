@@ -9,7 +9,7 @@ import torch
 import yaml
 
 from network.models import SingleTask, MultiTask  # BlockedMultiTask
-from preprocessing.dataset import LocationPredictionDataset
+from preprocessing.dataset import EffectPredictionDataset, default_transform
 
 
 def get_parameter_count(model):
@@ -30,13 +30,14 @@ def train(log_lock, seed, config):
     # Train set
     train_loaders = []
     val_loaders = []
-
+    ext = "img" if "cnn" in config else "pose-scaled"   # img input or not
     for task_name in config["tasks"]:
-        train_dataset = LocationPredictionDataset(task_name=task_name, batch_size=config["batch_size"], mode="train")
+        train_dataset = EffectPredictionDataset(task_name=task_name, ext_=ext, batch_size=config["batch_size"],
+                                                mode="train", y=config["target"])
         train_loader = train_dataset.load_data()
         train_loaders.append(train_loader)
-
-        val_dataset = LocationPredictionDataset(task_name=task_name, batch_size=config["batch_size"], mode="val")
+        val_dataset = EffectPredictionDataset(task_name=task_name, ext_=ext, batch_size=config["batch_size"],
+                                              mode="test", y=config["target"])
         val_loader = val_dataset.load_data()
         val_loaders.append(val_loader)
 
@@ -69,9 +70,9 @@ if __name__ == '__main__':
 
     train_opts = deepcopy(opts)
     opts["time"] = time.asctime(time.localtime(time.time()))
-    # seeds = np.random.randint(low=0, high=100000, size=opts["num_seeds"])
+    # seeds = np.random.randint(low=0, high=10000, size=opts["num_seeds"])
     # print(seeds)
-    seeds = np.asarray([5398, 36612, 78496, 75858, 26140])
+    seeds = np.asarray([9236, 1681, 3342, 7387, 3815, 1740, 1194, 3893, 4552, 6278])
     opts["seeds"] = seeds.tolist()
 
     # Save training config

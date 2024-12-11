@@ -1,22 +1,27 @@
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
+from torchvision.transforms import transforms
 
 
-class LocationPredictionDataset(Dataset):
-    def __init__(self, task_name, batch_size=500, mode="train"):  # mode -> train, val, test
-        X = np.load('{}_data/{}-task-states-pose-scaled.npy'.format(mode, task_name), allow_pickle=True)
-        target = np.load('{}_data/{}-task-effects-pose-scaled.npy'.format(mode, task_name), allow_pickle=True)
+class EffectPredictionDataset(Dataset):
+    def __init__(self, task_name, batch_size=500, ext_="pose-scaled", mode="train", y="delta", transform=None):
+        X = np.load('{}_data/{}-task-states-{}.npy'.format(mode, task_name, ext_), allow_pickle=True)
+        target = np.load('{}_data/{}-task-effects-{}-scaled.npy'.format(mode, task_name, y), allow_pickle=True)
         actions = np.load('{}_data/{}-task-actions.npy'.format(mode, task_name),
                           allow_pickle=True)
 
-        self.actions = actions
-        self.X = X
-        self.target = target
+        self.actions = actions[:len(actions)//2]
+        self.X = X[:len(X)//2]
+        self.target = target[:len(target)//2]
         self.batch_size = batch_size
+        self.transform = transform
 
     def __getitem__(self, index):
-        x = torch.FloatTensor(self.X[index])  # start position
+        if self.transform is not None:
+            x = self.transform(self.X[index])
+        else:
+            x = torch.FloatTensor(self.X[index])
         y = torch.FloatTensor(self.target[index])  # end position
         a = torch.FloatTensor(self.actions[index])  # action
 
@@ -35,3 +40,24 @@ class LocationPredictionDataset(Dataset):
         )
 
         return loader
+
+
+def default_transform(size, pad=True, affine=False, mean=None, std=None):
+    transform = [transforms.ToPILImage()]
+    if pad:
+        transform.append(transforms.Pad(padding=size, fill=0, padding_mode='constant'))
+    if size:
+        transform.append(transforms.Resize(size, interpolation=transforms.InterpolationMode.NEAREST))
+    if affine:
+        transform.append(
+            transforms.RandomAffine(
+                degrees=0,
+                translate=(0.1, 0.1),
+                fill=int(0.285 * 255)
+            )
+        )
+    transform.append(transforms.ToTensor())
+    if mean is not None:
+        transform.append(transforms.Normalize([mean], [std]))
+    transform = transforms.Compose(transform)
+    return transform
