@@ -79,8 +79,8 @@ class TaskSelectionUtils:
             self.lp_history = [[] for _ in range(task_count)]
 
         if "e" in selection:
-            self.current_ep = [0. for _ in range(task_count)]
-            self.ep_history = [[] for _ in range(task_count)]
+            self.current_ec = [0. for _ in range(task_count)]
+            self.ec_history = [[] for _ in range(task_count)]
 
         self.selection_history = []
         self.selection = selection
@@ -94,22 +94,22 @@ class TaskSelectionUtils:
                 self.sequence = None
 
     def calculate_lp(self, loss, index):
-        y = loss[-3:]
-        x = range(1, 4)
+        y = loss[-5:]
+        x = range(1, 6)
         slope = np.polyfit(x, y, deg=1)[0]
-        self.current_lp[index] = -slope
+        self.current_lp[index] = -slope if slope < 0. else 0.
 
     def calculate_ep(self, energy, index):
         y = energy[-5:]
-        self.current_ep[index] = np.mean(y)
+        self.current_ec[index] = np.mean(y)
 
     def save_lp(self):
         for i, progress in enumerate(self.current_lp):
             self.lp_history[i].append(progress)
 
     def save_ep(self):
-        for i, energy in enumerate(self.current_ep):
-            self.ep_history[i].append(energy)
+        for i, energy in enumerate(self.current_ec):
+            self.ec_history[i].append(energy)
 
     def get_winner(self):
         if self.selection == 'rand':
@@ -125,7 +125,7 @@ class TaskSelectionUtils:
             if self.selection == "lp":
                 winner_index = np.argsort(self.current_lp)[::-1][0]  # Highest lp
             elif self.selection == "lpe":
-                combined = np.asarray(self.current_lp) * np.exp(-0.1 * np.asarray(self.current_ep))
+                combined = np.asarray(self.current_lp) * np.exp(-0.1 * np.asarray(self.current_ec))
                 winner_index = np.argsort(combined)[::-1][0]  # Highest lpe
             selected = np.random.choice(a=[winner_index, -1], p=[1 - self.e, self.e])
             if selected == -1:
