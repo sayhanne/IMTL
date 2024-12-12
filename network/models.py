@@ -266,11 +266,11 @@ class SingleTask(EffectPrediction):
         task_encoders = nn.ModuleList()
         for n in range(num_tasks):
             state_encoder = build_state_encoder(config=config, task_idx=n)
-            action_encoder = MLP(layer_info=[config["action_size"][n], config["rep_action"]])
+            action_proj = MLP(layer_info=[config["action_size"][n], config["rep_action"]])
             attn_layer = MultiHeadAttnLayer(embed_dim=config["rep_state"] + config["rep_action"],
                                             num_heads=config["num_heads"])
             encoder = nn.Sequential(OrderedDict([("state_encoder", state_encoder),
-                                                 ("action_encoder", action_encoder),
+                                                 ("action_proj", action_proj),
                                                  ("attn_layer", attn_layer)]))
             task_encoders.append(encoder)
         return task_encoders
@@ -298,7 +298,7 @@ class SingleTask(EffectPrediction):
 
     def loss(self, task_id, state, effect, action):
         state_code = self.encoder[task_id].state_encoder(state)
-        action_code = self.encoder[task_id].action_encoder(action)
+        action_code = self.encoder[task_id].action_proj(action)
         action_state = torch.cat([state_code, action_code], dim=-1).unsqueeze(0)
         keys = action_state.clone()
         values = action_state.clone()
@@ -333,15 +333,15 @@ class MultiTask(EffectPrediction):
 
         # Shared encoder and multi-head attention layer
         state_encoder = build_state_encoder(config=config, shared=True)
-        attn_layer = MultiHeadAttnLayer(embed_dim=config["rep_state"] + config["rep_action"] + 1,  # +1 for flag
+        attn_layer = MultiHeadAttnLayer(embed_dim=config["rep_state"] + 1,  # +1 for flag
                                         num_heads=config["num_heads"])
         for n in range(num_tasks):
             sub_encoder = MLP(layer_info=[config["hidden_dim"]] * config["enc_depth_sub"] + [config["rep_state"]],
                               batch_norm=config["batch_norm"])
-            action_encoder = MLP(layer_info=[config["action_size"][n], config["rep_action"]])
+            action_proj = MLP(layer_info=[config["action_size"][n], config["rep_action"]])
             encoder_dict = OrderedDict([("state_encoder", state_encoder),  # shared
                                         ("sub_encoder", sub_encoder),
-                                        ("action_encoder", action_encoder),
+                                        ("action_proj", action_proj),
                                         ("attn_layer", attn_layer)])
             if self.proj_:
                 proj_layer = MLP(layer_info=[config["in_size"][n], config["hidden_dim"]])
@@ -369,41 +369,42 @@ class MultiTask(EffectPrediction):
             if self.proj_:
                 self.encoder[task_id].proj_layer.train()
             self.encoder[task_id].sub_encoder.train()
-            self.encoder[task_id].action_encoder.train()
+            self.encoder[task_id].action_proj.train()
             self.decoder[task_id].train()
         else:
             if self.proj_:
                 self.encoder[task_id].proj_layer.eval()
             self.encoder[task_id].sub_encoder.eval()
-            self.encoder[task_id].action_encoder.eval()
+            self.encoder[task_id].action_proj.eval()
             self.decoder[task_id].eval()
 
     def loss(self, task_id, state, effect, action):
         if self.proj_:
             state = self.encoder[task_id].proj_layer(state)
         state_code = self.encoder[task_id].state_encoder(state)  # shared encoder
-        task_action_code = self.encoder[task_id].action_encoder(action)
         task_reprs = []
         for idx in self.task_ids:
             if idx != task_id:
                 with torch.no_grad():  # Frozen, no gradients computed
                     task_state_code = self.encoder[idx].sub_encoder(state_code)
                     flag = torch.FloatTensor(torch.zeros([task_state_code.shape[0], 1])).to(self.device)
-                    rep = torch.cat([task_state_code, task_action_code, flag], dim=-1)
+                    rep = torch.cat([task_state_code, flag], dim=-1)
             else:  # trainable
                 task_state_code = self.encoder[idx].sub_encoder(state_code)
                 flag = torch.FloatTensor(torch.ones([task_state_code.shape[0], 1])).to(self.device)
-                rep = torch.cat([task_state_code, task_action_code, flag], dim=-1)
-            task_reprs.append(rep.unsqueeze(0))  # rep shape: (1, batch_size, (1 + rep_state + rep_action))
+                rep = torch.cat([task_state_code, flag], dim=-1)
+            task_reprs.append(rep.unsqueeze(0))  # rep shape: (1, batch_size, (1 + rep_state))
 
-        keys = torch.cat(task_reprs, dim=0)  # Shape: (num_tasks, batch_size, (1 + rep_state + rep_action))
+        keys = torch.cat(task_reprs, dim=0)  # Shape: (num_tasks, batch_size, (1 + rep_state))
         values = keys.clone()
 
         # Query is from current task's representation
-        query = task_reprs[task_id].clone()  # query shape: (1, batch_size, (1 + rep_state + rep_action))
+        query = task_reprs[task_id].clone()  # query shape: (1, batch_size, (1 + rep_state))
         h_attn = self.encoder[task_id].attn_layer(query, keys, values).squeeze(
-            0)  # Shape: (batch_size, (1 + rep_dim + action_dim))
-        effect_pred = self.decoder[task_id](h_attn)
+            0)  # Shape: (batch_size, (1 + rep_dim))
+
+        task_action_code = self.encoder[task_id].action_proj(action)
+        effect_pred = self.decoder[task_id](torch.hstack((h_attn, task_action_code)))
         return self.criterion(effect_pred, effect)
 
     def one_pass_others(self, winner, loader):
@@ -430,7 +431,7 @@ class MultiTask(EffectPrediction):
                 param.requires_grad = unfreeze
         for param in self.encoder[task_id].sub_encoder.parameters():
             param.requires_grad = unfreeze
-        for param in self.encoder[task_id].action_encoder.parameters():
+        for param in self.encoder[task_id].action_proj.parameters():
             param.requires_grad = unfreeze
         for param in self.decoder[task_id].parameters():
             param.requires_grad = unfreeze
