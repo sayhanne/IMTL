@@ -11,9 +11,9 @@ class EffectPredictionDataset(Dataset):
         actions = np.load('{}_data/{}-task-actions.npy'.format(mode, task_name),
                           allow_pickle=True)
 
-        self.actions = actions[:len(actions)//2]
-        self.X = X[:len(X)//2]
-        self.target = target[:len(target)//2]
+        self.actions = actions
+        self.X = X
+        self.target = target
         self.batch_size = batch_size
         self.transform = transform
 
