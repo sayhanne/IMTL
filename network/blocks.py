@@ -6,7 +6,7 @@ import torch
 
 
 def getTotalActivation(act):
-    return np.mean(np.abs(act))
+    return np.sum(np.abs(act))
 
 
 class Avg(torch.nn.Module):
