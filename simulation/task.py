@@ -13,9 +13,8 @@ class TableTopTask:
         """ total 6 objs => 6 dim for one-hot obj id """
         total_obj = 6
         in_dim = 9     # pos (x, y, z), euler ori (sinx, cosx, siny, cosy, sinz, cosz)
-        action_dim = 2  # sin (x), cos (x)
+        action_dim = 2 + total_obj  # sin (x), cos (x), obj_id
         out_dim = 9    # pos (x, y, z), euler ori (sinx, cosx, siny, cosy, sinz, cosz) OR displacement of pos and ori
-        self.upper_lim = 180.
         if task_name == 'push':
             self.env = PushEnv(gui=gui)
             self.env.initialize()
@@ -38,6 +37,7 @@ class TableTopTask:
 
         self.cursor = 0
         self.task_name = task_name
+        self.angle = np.arange(180.)
 
         # start collecting data set
         self.path = data_path
@@ -55,9 +55,10 @@ class TableTopTask:
         self.collect()
 
     def run_episode(self):
-        angle = np.random.uniform(0., self.upper_lim, size=1)
-        action, (img_pre, state_pre),  (img_post, state_post), pose_delta = self.env.step(angle=angle, sleep=REAL_TIME)
-
+        chosen_angle = self.angle[self.cursor]
+        # print(chosen_angle)
+        action, (img_pre, state_pre),  (img_post, state_post), pose_delta = self.env.step(angle=chosen_angle,
+                                                                                          sleep=REAL_TIME)
         self.state_img[self.index] = img_pre
         self.state_pose[self.index] = state_pre
         self.effect_img[self.index] = img_post
@@ -74,7 +75,9 @@ class TableTopTask:
         if self.task_name == 'push' or self.task_name == 'hit':
             if self.index % (self.num_samples // 6) == 0:  # change object
                 changeObj = True
+                self.cursor = 0
             else:
+                self.cursor += 1
                 changeObj = False
 
             self.env.reset_object(changeObj=changeObj, sleep=REAL_TIME)

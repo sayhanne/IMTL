@@ -282,9 +282,8 @@ class PushEnv(GenericEnv):
         self.segment_obj_(img_post)
         state_post = state_post['object']  # get only value
         pose_delta = state_post - state_pre  # pos and ori
-
-        return [math.sin(math.radians(angle)), math.cos(math.radians(angle))], (img_pre, state_pre), (
-            img_post, state_post), pose_delta
+        action = np.hstack((self.encoded_ids[self.obj], [math.sin(math.radians(angle)), math.cos(math.radians(angle))]))
+        return action, (img_pre, state_pre), (img_post, state_post), pose_delta
 
     def close(self):
         self._p.removeBody(self.agent.id)
@@ -486,9 +485,9 @@ class StackEnv(GenericEnv):
         pose_delta = np.hstack((state_post[:9] - state_pre[:9],  # target obj displacement (pos, ori)
                                 state_post[9:] - state_pre[9:]))  # moving obj displacement (pos, ori)
 
-        from_to_encode = np.hstack((self.encoded_ids[self.target_obj], self.encoded_ids[self.obj]))
+        action = np.hstack((self.encoded_ids[self.target_obj], self.encoded_ids[self.obj]))
 
-        return from_to_encode, (img_pre, state_pre), (
+        return action, (img_pre, state_pre), (
             img_post, state_post), pose_delta
 
     def close(self):
