@@ -8,8 +8,8 @@ import numpy as np
 import torch
 import yaml
 
-from network.models import SingleTask, MultiTask  # BlockedMultiTask
-from preprocessing.dataset import EffectPredictionDataset, default_transform
+from network.models import SingleTask, MultiTask, BlockedMultiTask
+from preprocessing.dataset import EffectPredictionDataset   # default_transform
 
 
 def get_parameter_count(model):
@@ -45,10 +45,11 @@ def train(log_lock, seed, config):
         model = SingleTask(seed, config)
     elif config["mode"] == "multitask":
         model = MultiTask(seed, config)
-    # elif config["mode"] == "blocked":
-    #     model = BlockedMultiTask(seed, config)
+    elif config["mode"] == "blocked":
+        model = BlockedMultiTask(seed, config)
     else:
         raise ValueError("Invalid model.")
+    print("parameter count", get_parameter_count(model))
     model.train_(train_loaders, val_loaders)
 
 
@@ -72,7 +73,7 @@ if __name__ == '__main__':
     opts["time"] = time.asctime(time.localtime(time.time()))
     # seeds = np.random.randint(low=0, high=10000, size=opts["num_seeds"])
     # print(seeds)
-    seeds = np.asarray([9236, 1681, 3342, 7387, 3815, 1740, 1194, 3893, 4552, 6278])
+    seeds = np.asarray([8302, 2766,  257, 7600, 6657, 8226, 6841, 4908, 1321, 7857])
     opts["seeds"] = seeds.tolist()
 
     # Save training config
