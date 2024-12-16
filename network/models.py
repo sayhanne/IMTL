@@ -1,5 +1,6 @@
 import os
 from collections import OrderedDict
+from copy import deepcopy
 
 import numpy as np
 import torch
@@ -57,7 +58,10 @@ class EffectPrediction(nn.Module):
     def _train_mode(self, task_id, train_mode=True):
         raise NotImplementedError
 
-    def one_pass_others(self, winner, loader):
+    def one_epoch_nograd(self, winner, loader):
+        raise NotImplementedError
+
+    def evaluate_others(self, winner, loader):
         raise NotImplementedError
 
     def get_next(self):
@@ -91,7 +95,7 @@ class EffectPrediction(nn.Module):
             loss = self.forward_mb(task_id, state, effect, action)
             loss.backward()
             self.optimizer.step()
-            energy_usage += self.get_synaptic_cost(task_id) + self.sum_dense_activations(task_id)
+            energy_usage += self.sum_dense_activations(task_id)
             running_loss += loss.item()
 
         avg_loss = running_loss / len(loader)
@@ -100,7 +104,7 @@ class EffectPrediction(nn.Module):
         self.energy_util.update_task_energy(avg_energy, task_id)
         return avg_loss
 
-    def evaluate_epoch(self, task_id, loader, val_=True):
+    def evaluate_epoch(self, task_id, loader, val_=True, _append=True):
         self._train_mode(task_id, train_mode=False)
         running_vloss = 0.0
         energy_usage = 0.
@@ -113,17 +117,14 @@ class EffectPrediction(nn.Module):
             avg_energy = energy_usage / len(loader)
             if val_:
                 self.loss_util.update_task_loss(avg_vloss, task_id, is_eval=True)
-                self.energy_util.update_task_energy(avg_energy, task_id, is_eval=True)
+                if _append:
+                    self.energy_util.update_task_energy(avg_energy, task_id, is_eval=True)
+                else:
+                    self.energy_util.update_last_energy(avg_energy, task_id, is_eval=True)
             else:
                 self.loss_util.update_last_loss(avg_vloss, task_id)
                 self.energy_util.update_last_energy(avg_energy, task_id)
             return avg_vloss
-
-    def evaluate_all(self, loaders):
-        eval_loss = np.zeros(len(self.task_ids))
-        for i, t in enumerate(self.task_ids):
-            eval_loss[i] = self.evaluate_epoch(t, loaders[t])
-        return np.mean(eval_loss)
 
     def pre_train(self, task_id, tr_loader, val_loader, count=10):
         self.freeze_task(task_id, unfreeze=True)
@@ -134,7 +135,6 @@ class EffectPrediction(nn.Module):
 
         # Record pre-train results to the plot
         self.loss_util.update_loss_plot(copy=True, task_id=task_id)
-        self.energy_util.update_energy_plot(copy=True, task_id=task_id)
 
     def train_(self, train_loaders, val_loaders):
         for t in self.task_ids:
@@ -147,13 +147,13 @@ class EffectPrediction(nn.Module):
             self.freeze_task(task_id=winner_id, unfreeze=True)
             self.one_epoch_optimize(task_id=winner_id, loader=train_loaders[winner_id])
             self.freeze_task(task_id=winner_id)
+            eval_loss = self.evaluate_epoch(task_id=winner_id, loader=val_loaders[winner_id])
 
-            # for interleaved multitask models, this is required, others pass
-            self.one_pass_others(winner=winner_id, loader=train_loaders)
+            self.one_epoch_nograd(winner=winner_id, loader=train_loaders)
+            self.evaluate_others(winner=winner_id, loader=val_loaders)
 
             self.loss_util.update_loss_plot()
-            self.energy_util.update_energy_plot()
-            avg_vloss = self.evaluate_all(val_loaders)
+            avg_vloss = np.mean(eval_loss)
 
             if avg_vloss < best_loss:  # avg task loss
                 best_loss = avg_vloss
@@ -176,6 +176,8 @@ class EffectPrediction(nn.Module):
                 np.asarray(self.loss_util.train_loss_history_plot))
         np.save('{}/eval-loss-plot-seed-{}.npy'.format(self.result_path, self.seed),
                 np.asarray(self.loss_util.eval_loss_history_plot))
+        np.save('{}/selection-seed-{}.npy'.format(self.result_path, self.seed),
+                np.asarray(self.selection_util.selection_history))
 
     def freeze_all(self):
         for param in self.encoder.parameters():
@@ -226,7 +228,7 @@ class EffectPrediction(nn.Module):
     def sum_dense_activations(self, task_id):
         total_activation_sum = (self.sum_dense_activations_aux(self.encoder[task_id]) +
                                 self.sum_dense_activations_aux(self.decoder[task_id]))
-        return total_activation_sum
+        return total_activation_sum / 1e3
 
     def sum_dense_activations_aux(self, model):
         total_activation_sum = 0
@@ -307,8 +309,13 @@ class SingleTask(EffectPrediction):
         effect_pred = self.decoder[task_id](h_attn)
         return self.criterion(effect_pred, effect)
 
-    def one_pass_others(self, winner, loader):
+    def one_epoch_nograd(self, winner, loader):
         pass
+
+    def evaluate_others(self, winner, loader):  # just append the last eval loss for the visualization purposes
+        for t in self.task_ids:
+            if t != winner:
+                self.loss_util.eval_loss_history_plot[t].append(self.loss_util.eval_loss[t])
 
     def get_next(self):
         return self.selection_util.get_winner()
@@ -407,10 +414,15 @@ class MultiTask(EffectPrediction):
         effect_pred = self.decoder[task_id](torch.hstack((h_attn, task_action_code)))
         return self.criterion(effect_pred, effect)
 
-    def one_pass_others(self, winner, loader):
+    def one_epoch_nograd(self, winner, loader):
         for t in self.task_ids:
             if t != winner:
                 self.evaluate_epoch(t, loader[t], val_=False)  # Do not train, just get training loss
+
+    def evaluate_others(self, winner, loader):
+        for t in self.task_ids:
+            if t != winner:
+                self.evaluate_epoch(t, loader[t], _append=False)
 
     def get_next(self):
         if "lp" in self.selection_type:
@@ -448,26 +460,48 @@ class MultiTask(EffectPrediction):
             self.encoder[0].state_encoder.eval()
             self.encoder[0].attn_layer.eval()
 
-# class BlockedMultiTask(MultiTask):
-#     def __init__(self, seed, config):
-#         super(BlockedMultiTask, self).__init__(seed, config)
-#
-#     def train_(self, train_loaders, val_loaders):
-#         winner_id = self.get_next()
-#         self.freeze_shared(unfreeze=True)  # for multitask models, this is required, others pass
-#         self.freeze_task(task_id=winner_id, unfreeze=True)
-#         trained_tasks = []
-#         for e in range(1, self.num_epochs + 1):
-#             self.one_epoch_optimize(task_id=winner_id, loader=train_loaders[winner_id])
-#             self.evaluate_epoch(task_id=winner_id, loader=val_loaders[winner_id])
-#             for idx in trained_tasks:
-#                 self.evaluate_epoch(task_id=idx, loader=train_loaders[idx], val_=False)
-#                 self.evaluate_epoch(task_id=idx, loader=val_loaders[idx])
-#             next_winner = self.get_next()
-#             if winner_id != next_winner:
-#                 self.freeze_task(task_id=winner_id)
-#                 self.freeze_task(task_id=next_winner, unfreeze=True)
-#                 trained_tasks.append(winner_id)
-#             winner_id = next_winner
-#             self.loss_util.update_loss_plot()
-#             self.energy_util.update_energy_plot()
+
+# TODO: demo trial now
+class BlockedMultiTask(MultiTask):
+    def __init__(self, seed, config):
+        super(BlockedMultiTask, self).__init__(seed, config)
+
+    def train_(self, train_loaders, val_loaders):
+        winner_id = self.get_next()
+        self.freeze_shared(unfreeze=True)  # for multitask models, this is required, others pass
+        self.freeze_task(task_id=winner_id, unfreeze=True)
+        trained_tasks = []
+        non_trained_tasks = np.setdiff1d(self.task_ids, [winner_id])
+        for e in range(1, self.num_epochs + 1):
+            self.one_epoch_optimize(task_id=winner_id, loader=train_loaders[winner_id])
+            self.evaluate_epoch(task_id=winner_id, loader=val_loaders[winner_id])
+            for idx in trained_tasks:
+                self.evaluate_epoch(task_id=idx, loader=train_loaders[idx], val_=False)
+                self.evaluate_epoch(task_id=idx, loader=val_loaders[idx], _append=False)
+            self.loss_util.update_loss_plot()
+            for t in non_trained_tasks:
+                self.fill_zeros_eval(t)
+            if e % 200 == 0:
+                np.save('{}/train-energy-bar-epoch-{}-seed-{}.npy'.format(self.result_path, e, self.seed),
+                        np.asarray(self.energy_util.get_total_energy()))
+                np.save('{}/eval-energy-bar-epoch-{}-seed-{}.npy'.format(self.result_path, e, self.seed),
+                        np.asarray(self.energy_util.get_total_energy(is_eval=True)))
+            if e < self.num_epochs:
+                next_winner = self.get_next()
+                if winner_id != next_winner:
+                    self.freeze_task(task_id=winner_id)
+                    self.freeze_task(task_id=next_winner, unfreeze=True)
+                    trained_tasks.append(winner_id)
+                    non_trained_tasks = np.setdiff1d(non_trained_tasks, [next_winner])
+                winner_id = next_winner
+
+        # Save final results
+        np.save('{}/train-loss-plot-seed-{}.npy'.format(self.result_path, self.seed),
+                np.asarray(self.loss_util.train_loss_history_plot))
+        np.save('{}/eval-loss-plot-seed-{}.npy'.format(self.result_path, self.seed),
+                np.asarray(self.loss_util.eval_loss_history_plot))
+        np.save('{}/selection-seed-{}.npy'.format(self.result_path, self.seed),
+                np.asarray(self.selection_util.selection_history))
+
+    def fill_zeros_eval(self, t):
+        self.loss_util.eval_loss_history_plot[t].append(self.loss_util.eval_loss[t])
