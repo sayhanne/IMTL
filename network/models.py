@@ -448,6 +448,7 @@ class MultiTask(EffectPrediction):
             self.encoder[0].attn_layer.eval()
 
 
+
 # TODO: demo trial now
 class BlockedMultiTask(MultiTask):
     def __init__(self, seed, config):

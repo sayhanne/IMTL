@@ -9,7 +9,7 @@ import torch
 import yaml
 
 from network.models import SingleTask, MultiTask, BlockedMultiTask
-from preprocessing.dataset import EffectPredictionDataset   # default_transform
+from preprocessing.dataset import EffectPredictionDataset  # default_transform
 
 
 def get_parameter_count(model):
@@ -30,7 +30,8 @@ def train(log_lock, seed, config):
     # Train set
     train_loaders = []
     val_loaders = []
-    ext = "img" if "cnn" in config else "pose-scaled"   # img input or not
+    # ext = "img" if "cnn" in config else "pose-scaled"  # img input or not
+    ext = "pose-scaled"
     for task_name in config["tasks"]:
         train_dataset = EffectPredictionDataset(task_name=task_name, ext_=ext, batch_size=config["batch_size"],
                                                 mode="train", y=config["target"])
@@ -53,6 +54,24 @@ def train(log_lock, seed, config):
     model.train_(train_loaders, val_loaders)
 
 
+def test_transfer_object(seed, config):
+    val_loaders = []
+    task_name_id = {"push": 0, "hit": 1, "stack": 2}
+    object_dict = {"sphere": [1, 0, 0, 0, 0, 0],
+                   "cube": [0, 1, 0, 0, 0, 0],
+                   "ver-cylinder": [0, 0, 1, 0, 0, 0],
+                   "hor-cylinder": [0, 0, 0, 1, 0, 0],
+                   "ver-prism": [0, 0, 0, 0, 1, 0],
+                   "hor-prism": [0, 0, 0, 0, 0, 1]}
+    ext = "pose-scaled"
+    model = MultiTask(seed, config)
+    model.load(path="results/training-save/imtl-lp/model_ckpts", ext="_last")
+    for task_name in config["tasks"]:
+        for object_type, idx in object_dict.items():
+            subset = EffectPredictionDataset(task_name=task_name, ext_=ext,
+                                             y=config["target"], object_id=idx)
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser("iMTLIFE")
     parser.add_argument("-opts", help="option file", type=str,
@@ -64,16 +83,16 @@ if __name__ == '__main__':
         os.makedirs(opts["save"])
 
     # Create subdir for model checkpoints and results
-    if not os.path.exists(opts["save"] + "/model_ckpts"):
-        os.makedirs(opts["save"] + "/model_ckpts")
-    if not os.path.exists(opts["save"] + "/plots"):
-        os.makedirs(opts["save"] + "/plots")
+    # if not os.path.exists(opts["save"] + "/model_ckpts"):
+    #     os.makedirs(opts["save"] + "/model_ckpts")
+    # if not os.path.exists(opts["save"] + "/plots"):
+    #     os.makedirs(opts["save"] + "/plots")
 
     train_opts = deepcopy(opts)
     opts["time"] = time.asctime(time.localtime(time.time()))
     # seeds = np.random.randint(low=0, high=10000, size=opts["num_seeds"])
     # print(seeds)
-    seeds = np.asarray([8302, 2766,  257, 7600, 6657, 8226, 6841, 4908, 1321, 7857])
+    seeds = np.asarray([8302, 2766, 257, 7600, 6657, 8226, 6841, 4908, 1321, 7857])
     opts["seeds"] = seeds.tolist()
 
     # Save training config
@@ -82,13 +101,14 @@ if __name__ == '__main__':
     file.close()
     print(yaml.dump(opts))
 
-    lock = Lock()
-
-    procs = []
-    for i in range(train_opts["num_seeds"]):
-        p = Process(target=train, args=(lock, seeds[i], train_opts))
-        p.start()
-        procs.append(p)
-
-    for i in range(train_opts["num_seeds"]):
-        procs[i].join()
+    test_transfer_object(seeds[0], config=train_opts)
+    # lock = Lock()
+    #
+    # procs = []
+    # for i in range(train_opts["num_seeds"]):
+    #     p = Process(target=train, args=(lock, seeds[i], train_opts))
+    #     p.start()
+    #     procs.append(p)
+    #
+    # for i in range(train_opts["num_seeds"]):
+    #     procs[i].join()

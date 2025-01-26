@@ -1,4 +1,3 @@
-import math
 from copy import deepcopy
 
 import numpy as np
@@ -120,7 +119,7 @@ class TaskSelectionUtils:
         else:  # LP or energy based selection
             winner_index = -1
             if self.selection == "lp":
-                winner_index = np.argsort(self.current_lp)[::-1][0]  # Highest lp
+                winner_index = np.argmax(self.current_lp)
             elif self.selection == "lpe":
                 combined = np.asarray(self.current_lp) * np.exp(-self.k * np.asarray(self.current_ec))
                 winner_index = np.argsort(combined)[::-1][0]  # Highest lpe
