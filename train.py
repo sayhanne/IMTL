@@ -54,8 +54,7 @@ def train(log_lock, seed, config):
     model.train_(train_loaders, val_loaders)
 
 
-def test_transfer_object(seed, config):
-    val_loaders = []
+def object_based_transfer(seed, config):
     task_name_id = {"push": 0, "hit": 1, "stack": 2}
     object_dict = {"sphere": [1, 0, 0, 0, 0, 0],
                    "cube": [0, 1, 0, 0, 0, 0],
@@ -66,10 +65,20 @@ def test_transfer_object(seed, config):
     ext = "pose-scaled"
     model = MultiTask(seed, config)
     model.load(path="results/training-save/imtl-lp/model_ckpts", ext="_last")
+    per_object_results = {"sphere": {}, "cube": {},
+                          "ver-cylinder": {}, "hor-cylinder": {},
+                          "ver-prism": {}, "hor-prism": {}}
     for task_name in config["tasks"]:
+        if task_name != "stack":
+            continue
         for object_type, idx in object_dict.items():
             subset = EffectPredictionDataset(task_name=task_name, ext_=ext,
                                              y=config["target"], object_id=idx)
+            delta = model.evaluate_single_task_contribution(subset.load_data(), active_task_id=task_name_id[task_name])
+            per_object_results[object_type][task_name] = {ot_name: delta[ot_id] for ot_name, ot_id in
+                                                          task_name_id.items()
+                                                          if ot_id in delta}
+    np.save("seed-{}-transfer-two-obj.npy".format(seed), per_object_results)
 
 
 if __name__ == '__main__':
@@ -101,14 +110,13 @@ if __name__ == '__main__':
     file.close()
     print(yaml.dump(opts))
 
-    test_transfer_object(seeds[0], config=train_opts)
     # lock = Lock()
     #
-    # procs = []
-    # for i in range(train_opts["num_seeds"]):
-    #     p = Process(target=train, args=(lock, seeds[i], train_opts))
-    #     p.start()
-    #     procs.append(p)
-    #
-    # for i in range(train_opts["num_seeds"]):
-    #     procs[i].join()
+    procs = []
+    for i in range(train_opts["num_seeds"]):
+        p = Process(target=object_based_transfer, args=(seeds[i], train_opts))
+        p.start()
+        procs.append(p)
+
+    for i in range(train_opts["num_seeds"]):
+        procs[i].join()

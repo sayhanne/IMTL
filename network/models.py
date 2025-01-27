@@ -374,7 +374,7 @@ class MultiTask(EffectPrediction):
             self.encoder[task_id].action_proj.eval()
             self.decoder[task_id].eval()
 
-    def loss(self, task_id, state, effect, action):
+    def loss(self, task_id, state, effect, action, disable_task=None):
         proj_state = self.encoder[task_id].state_proj(state)
         state_code = self.encoder[task_id].state_encoder(proj_state)  # shared encoder
         task_reprs = []
@@ -393,6 +393,10 @@ class MultiTask(EffectPrediction):
         keys = torch.cat(task_reprs, dim=0)  # Shape: (num_tasks, batch_size, (1 + rep_state))
         values = keys.clone()
 
+        if disable_task is not None:
+            keys[disable_task] = 0.0
+            values[disable_task] = 0.0
+
         # Query is from current task's representation
         query = task_reprs[task_id].clone()  # query shape: (1, batch_size, (1 + rep_state))
         h_attn = self.encoder[task_id].attn_layer(query, keys, values).squeeze(
@@ -400,6 +404,43 @@ class MultiTask(EffectPrediction):
         action_code = self.encoder[task_id].action_proj(action)
         effect_pred = self.decoder[task_id](torch.hstack((h_attn, action_code)))
         return self.criterion(effect_pred, effect)
+
+    def evaluate_single_task_contribution(self, data_loader, active_task_id):
+        loss_baseline = 0.0
+        loss_ablation = {}
+
+        # We'll only disable tasks that are different from active_task_id
+        other_tasks = [t for t in self.task_ids if t != active_task_id]
+        for ot in other_tasks:
+            loss_ablation[ot] = 0.0
+
+        with torch.no_grad():
+            for batch in data_loader:
+                state, effect, action = batch
+                state, effect, action = (state.to(self.device),
+                                         effect.to(self.device),
+                                         action.to(self.device))
+
+                # --- (A) Baseline with all tasks ---
+                loss_full = self.loss(active_task_id, state, effect, action)
+                loss_baseline = loss_full.item()
+
+                # --- (B) Ablation: disable one task at a time
+                for ot in other_tasks:
+                    loss_ablate = self.loss(
+                        task_id=active_task_id,
+                        state=state,
+                        effect=effect,
+                        action=action,
+                        disable_task=ot  # disable only this one
+                    )
+                    loss_ablation[ot] += loss_ablate.item()
+
+        results = {}
+        for ot, val in loss_ablation.items():
+            results[ot] = val-loss_baseline
+
+        return results
 
     def one_epoch_nograd(self, winner, loader):
         for t in self.task_ids:
