@@ -68,23 +68,23 @@ def object_based_transfer(seed, config):
     per_object_results = {"sphere": {}, "cube": {},
                           "ver-cylinder": {}, "hor-cylinder": {},
                           "ver-prism": {}, "hor-prism": {}}
-    for task_name in config["tasks"]:
-        if task_name != "stack":
-            continue
+
+    for target_obj_type, t_idx in object_dict.items():
         for object_type, idx in object_dict.items():
-            subset = EffectPredictionDataset(task_name=task_name, ext_=ext,
-                                             y=config["target"], object_id=idx)
-            delta = model.evaluate_single_task_contribution(subset.load_data(), active_task_id=task_name_id[task_name])
-            per_object_results[object_type][task_name] = {ot_name: delta[ot_id] for ot_name, ot_id in
-                                                          task_name_id.items()
-                                                          if ot_id in delta}
+            subset = EffectPredictionDataset(task_name="stack", ext_=ext,
+                                             y=config["target"], object_id=idx, target_id=t_idx)
+            delta = model.evaluate_single_task_contribution(subset.load_data(), active_task_id=task_name_id["stack"])
+            per_object_results[target_obj_type][object_type] = {ot_name: delta[ot_id] for ot_name, ot_id in
+                                                                task_name_id.items()
+                                                                if ot_id in delta}
+            print()
     np.save("seed-{}-transfer-two-obj.npy".format(seed), per_object_results)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser("iMTLIFE")
     parser.add_argument("-opts", help="option file", type=str,
-                        default='multitask.yml')
+                        default='singletask.yml')
     args = parser.parse_args()
 
     opts = yaml.safe_load(open(args.opts, "r"))
@@ -92,10 +92,10 @@ if __name__ == '__main__':
         os.makedirs(opts["save"])
 
     # Create subdir for model checkpoints and results
-    # if not os.path.exists(opts["save"] + "/model_ckpts"):
-    #     os.makedirs(opts["save"] + "/model_ckpts")
-    # if not os.path.exists(opts["save"] + "/plots"):
-    #     os.makedirs(opts["save"] + "/plots")
+    if not os.path.exists(opts["save"] + "/model_ckpts"):
+        os.makedirs(opts["save"] + "/model_ckpts")
+    if not os.path.exists(opts["save"] + "/plots"):
+        os.makedirs(opts["save"] + "/plots")
 
     train_opts = deepcopy(opts)
     opts["time"] = time.asctime(time.localtime(time.time()))
@@ -110,11 +110,10 @@ if __name__ == '__main__':
     file.close()
     print(yaml.dump(opts))
 
-    # lock = Lock()
-    #
+    lock = Lock()
     procs = []
     for i in range(train_opts["num_seeds"]):
-        p = Process(target=object_based_transfer, args=(seeds[i], train_opts))
+        p = Process(target=train, args=(lock, seeds[i], train_opts))
         p.start()
         procs.append(p)
 
