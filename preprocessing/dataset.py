@@ -6,7 +6,7 @@ from torchvision.transforms import transforms
 
 class EffectPredictionDataset(Dataset):
     def __init__(self, task_name, batch_size=500, ext_="pose-scaled", mode="train", y="delta",
-                 transform=None, object_id=None):
+                 transform=None, object_id=None, target_id=None):
         X = np.load('{}_data/{}-task-states-{}.npy'.format(mode, task_name, ext_), allow_pickle=True)
         target = np.load('{}_data/{}-task-effects-{}-scaled.npy'.format(mode, task_name, y), allow_pickle=True)
         actions = np.load('{}_data/{}-task-actions.npy'.format(mode, task_name),
@@ -19,7 +19,11 @@ class EffectPredictionDataset(Dataset):
             self.batch_size = batch_size
             self.transform = transform
         else:
-            indices = np.where((actions[:, :6] == object_id).all(axis=1))[0]
+            if task_name == "stack":
+                concat_id = np.hstack((target_id, object_id))
+                indices = np.where((actions[:, :12] == concat_id).all(axis=1))[0]
+            else:
+                indices = np.where((actions[:, :6] == object_id).all(axis=1))[0]
             self.actions = np.take(actions, indices, axis=0)
             self.X = np.take(X, indices, axis=0)
             self.target = np.take(target, indices, axis=0)

@@ -30,6 +30,7 @@ class EffectPrediction(nn.Module):
         self.criterion = torch.nn.L1Loss()
         self.task_ids = np.arange(0, config["num_tasks"])
         # self.proj_ = "cnn" not in config
+        self.num_params = np.zeros(config["num_tasks"], dtype=int)  # will be set while building encoder/decoder
         self.encoder = self.build_encoder(config).to(self.device)
         self.decoder = self.build_decoder(config).to(self.device)
         self.optimizer = torch.optim.AdamW(lr=config["learning_rate"],
@@ -222,7 +223,7 @@ class EffectPrediction(nn.Module):
     def sum_dense_activations(self, task_id):
         total_activation_sum = (self.sum_dense_activations_aux(self.encoder[task_id]) +
                                 self.sum_dense_activations_aux(self.decoder[task_id]))
-        return total_activation_sum / 1e3
+        return total_activation_sum
 
     def sum_dense_activations_aux(self, model):
         total_activation_sum = 0
@@ -268,6 +269,7 @@ class SingleTask(EffectPrediction):
             encoder = nn.Sequential(OrderedDict([("state_encoder", state_encoder),
                                                  ("action_proj", action_proj),
                                                  ("attn_layer", attn_layer)]))
+            self.num_params[n] += get_parameter_count(encoder)
             task_encoders.append(encoder)
         return task_encoders
 
@@ -281,6 +283,7 @@ class SingleTask(EffectPrediction):
                            [config["out_size"][n]],
                 batch_norm=config["batch_norm"])
             decoder = nn.Sequential(OrderedDict([("effect_decoder", effect_decoder)]))
+            self.num_params[n] += get_parameter_count(decoder)
             task_decoders.append(decoder)
         return task_decoders
 
@@ -344,9 +347,10 @@ class MultiTask(EffectPrediction):
                                         ("state_encoder", state_encoder),  # shared
                                         ("sub_encoder", sub_encoder),
                                         ("action_proj", action_proj),
-                                        ("attn_layer", attn_layer)])    # shared
+                                        ("attn_layer", attn_layer)])  # shared
 
             encoder = nn.Sequential(encoder_dict)
+            self.num_params[n] += get_parameter_count(encoder)
             task_encoders.append(encoder)
         return task_encoders
 
@@ -359,6 +363,7 @@ class MultiTask(EffectPrediction):
                                             [config["out_size"][n]],
                                  batch_norm=config["batch_norm"])
             decoder = nn.Sequential(OrderedDict([("effect_decoder", effect_decoder)]))
+            self.num_params[n] += get_parameter_count(decoder)
             task_decoders.append(decoder)
         return task_decoders
 
@@ -438,7 +443,7 @@ class MultiTask(EffectPrediction):
 
         results = {}
         for ot, val in loss_ablation.items():
-            results[ot] = val-loss_baseline
+            results[ot] = val - loss_baseline
 
         return results
 
@@ -461,7 +466,7 @@ class MultiTask(EffectPrediction):
         if "e" in self.selection_type:
             for t in self.task_ids:
                 self.selection_util.calculate_ep(energy=self.energy_util.train_energy_history[t], index=t)
-            self.selection_util.save_ep()
+            self.selection_util.save_ec()
 
         return self.selection_util.get_winner()
 
@@ -487,7 +492,6 @@ class MultiTask(EffectPrediction):
         else:
             self.encoder[0].state_encoder.eval()
             self.encoder[0].attn_layer.eval()
-
 
 
 # TODO: demo trial now

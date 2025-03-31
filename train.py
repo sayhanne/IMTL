@@ -84,7 +84,7 @@ def object_based_transfer(seed, config):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser("iMTLIFE")
     parser.add_argument("-opts", help="option file", type=str,
-                        default='singletask.yml')
+                        default='multitask.yml')
     args = parser.parse_args()
 
     opts = yaml.safe_load(open(args.opts, "r"))

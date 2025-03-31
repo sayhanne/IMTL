@@ -76,12 +76,12 @@ class TaskSelectionUtils:
         if "e" in selection:
             self.current_ec = [0. for _ in range(task_count)]
             self.ec_history = [[] for _ in range(task_count)]
+            self.k = 1.2
 
         self.selection_history = []
         self.selection = selection
         self.taskCount = task_count
         self.e = 0.1
-        self.k = 10
         self.count = 0
         if self.selection == 'rand':
             if random_seq_path is not None:
@@ -93,7 +93,7 @@ class TaskSelectionUtils:
         y = loss[-5:]
         x = range(1, 6)
         slope = np.polyfit(x, y, deg=1)[0]
-        self.current_lp[index] = -slope if slope < 0. else 0.
+        self.current_lp[index] = -slope if slope < 0. else 1e-5
 
     def calculate_ep(self, energy, index):
         y = energy[-5:]
@@ -103,7 +103,7 @@ class TaskSelectionUtils:
         for i, progress in enumerate(self.current_lp):
             self.lp_history[i].append(progress)
 
-    def save_ep(self):
+    def save_ec(self):
         for i, energy in enumerate(self.current_ec):
             self.ec_history[i].append(energy)
 
@@ -121,8 +121,12 @@ class TaskSelectionUtils:
             if self.selection == "lp":
                 winner_index = np.argmax(self.current_lp)
             elif self.selection == "lpe":
-                combined = np.asarray(self.current_lp) * np.exp(-self.k * np.asarray(self.current_ec))
-                winner_index = np.argsort(combined)[::-1][0]  # Highest lpe
+                lp_nmpy = np.asarray(self.current_lp)
+                lp_normalized = lp_nmpy / np.linalg.norm(lp_nmpy)
+                ec_nmpy = np.asarray(self.current_ec)
+                ec_normalized = ec_nmpy / np.linalg.norm(ec_nmpy)
+                combined = np.exp(self.k * lp_normalized) / ec_normalized
+                winner_index = np.argmax(combined)
             selected = np.random.choice(a=[winner_index, -1], p=[1 - self.e, self.e])
             if selected == -1:
                 other_tasks = np.setdiff1d(range(self.taskCount), [winner_index])
