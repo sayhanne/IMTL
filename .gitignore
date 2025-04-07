@@ -7,3 +7,5 @@
 *.npy
 *.pt
 *.xml
+*.png
+*.ckpt
