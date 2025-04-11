@@ -76,7 +76,7 @@ class TaskSelectionUtils:
         if "e" in selection:
             self.current_ec = [0. for _ in range(task_count)]
             self.ec_history = [[] for _ in range(task_count)]
-            self.k = 1.2
+            self.k = 1
 
         self.selection_history = []
         self.selection = selection
