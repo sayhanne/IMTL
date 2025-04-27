@@ -99,11 +99,9 @@ if __name__ == '__main__':
 
     train_opts = deepcopy(opts)
     opts["time"] = time.asctime(time.localtime(time.time()))
-    seeds = np.random.randint(low=0, high=10000, size=opts["num_seeds"])
-    print(seeds)
-    seeds = np.asarray([4983, 650, 1413, 1227, 2910, 9565, 4767, 1603, 492, 2667])
-    # seed_save = [7600, 2766, 6841, 4908, 3618, 5091, 2120, 4983 ]
-    # seeds = np.asarray([8302, 2766,  257, 7600, 6657, 8226, 6841, 4908, 1321, 7857])
+    # seeds = np.random.randint(low=0, high=10000, size=opts["num_seeds"])
+    # print(seeds)
+    seeds = np.asarray([8302, 2766,  257, 7600, 6657, 8226, 6841, 4908, 1321, 7857])
     opts["seeds"] = seeds.tolist()
 
     # Save training config
