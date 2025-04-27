@@ -172,7 +172,7 @@ def build_state_encoder(config, shared=False, task_idx=-1):
         if shared:
             # there will be a projection layer before this mlp encoder
             encoder = [MLP(
-                layer_info=[config["hidden_dim"] + 2] * config["enc_depth_state"] + [out_dim],
+                layer_info=[int(config["hidden_dim"] * 1.5)] * config["enc_depth_state"] + [out_dim],
                 batch_norm=config["batch_norm"])]
         else:
             encoder = [MLP(

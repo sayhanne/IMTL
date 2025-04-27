@@ -339,7 +339,7 @@ class MultiTask(EffectPrediction):
         attn_layer = MultiHeadAttnLayer(embed_dim=config["rep_state"] + 1,  # +1 for flag
                                         num_heads=config["num_heads"])
         for n in range(num_tasks):
-            state_proj = MLP(layer_info=[config["in_size"][n], config["hidden_dim"] + 2])
+            state_proj = MLP(layer_info=[config["in_size"][n], int(config["hidden_dim"] * 1.5)])
             sub_encoder = MLP(layer_info=[config["hidden_dim"]] * config["enc_depth_sub"] + [config["rep_state"]],
                               batch_norm=config["batch_norm"])
             action_proj = MLP(layer_info=[config["action_size"][n], config["rep_action"]])
