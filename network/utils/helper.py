@@ -95,7 +95,7 @@ class TaskSelectionUtils:
         slope = np.polyfit(x, y, deg=1)[0]
         self.current_lp[index] = -slope if slope < 0. else 1e-5
 
-    def calculate_ep(self, energy, index):
+    def calculate_ec(self, energy, index):
         y = energy[-5:]
         self.current_ec[index] = np.sum(y)
 
