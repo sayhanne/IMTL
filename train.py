@@ -50,7 +50,8 @@ def train(log_lock, seed, config):
         model = BlockedMultiTask(seed, config)
     else:
         raise ValueError("Invalid model.")
-    print("parameter count", get_parameter_count(model))
+    # print(model)
+    # print("parameter count", get_parameter_count(model))
     model.train_(train_loaders, val_loaders)
 
 
@@ -77,7 +78,6 @@ def object_based_transfer(seed, config):
             per_object_results[target_obj_type][object_type] = {ot_name: delta[ot_id] for ot_name, ot_id in
                                                                 task_name_id.items()
                                                                 if ot_id in delta}
-            print()
     np.save("seed-{}-transfer-two-obj.npy".format(seed), per_object_results)
 
 
@@ -101,7 +101,7 @@ if __name__ == '__main__':
     opts["time"] = time.asctime(time.localtime(time.time()))
     # seeds = np.random.randint(low=0, high=10000, size=opts["num_seeds"])
     # print(seeds)
-    seeds = np.asarray([8302, 2766,  257, 7600, 6657, 8226, 6841, 4908, 1321, 7857])
+    seeds = np.asarray([8302, 2766, 257, 7600, 6657, 8226, 6841, 4908, 1321, 7857])
     opts["seeds"] = seeds.tolist()
 
     # Save training config
