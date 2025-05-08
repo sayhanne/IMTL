@@ -235,23 +235,23 @@ class EffectPrediction(nn.Module):
                 total_activation_sum += self.sum_dense_activations_aux(module)  # Recursive call
         return total_activation_sum
 
-    def get_synaptic_cost(self, task_id):
-        synaptic_transmission_cost = 0
-        for param in self.encoder[task_id].parameters():
-            if param.requires_grad:
-                weight = param.data.detach().cpu().numpy()
-                gradient = param.grad.detach().cpu().numpy()
-                # Element-wise multiplication of weights and gradients
-                cost = np.sum(np.abs(weight) * np.abs(gradient))
-                synaptic_transmission_cost += cost
-        for param in self.decoder[task_id].parameters():
-            if param.requires_grad:
-                weight = param.data.detach().cpu().numpy()
-                gradient = param.grad.detach().cpu().numpy()
-                # Element-wise multiplication of weights and gradients
-                cost = np.sum(np.abs(weight) * np.abs(gradient))
-                synaptic_transmission_cost += cost
-        return synaptic_transmission_cost
+    # def get_synaptic_cost(self, task_id):
+    #     synaptic_transmission_cost = 0
+    #     for param in self.encoder[task_id].parameters():
+    #         if param.requires_grad:
+    #             weight = param.data.detach().cpu().numpy()
+    #             gradient = param.grad.detach().cpu().numpy()
+    #             # Element-wise multiplication of weights and gradients
+    #             cost = np.sum(np.abs(weight) * np.abs(gradient))
+    #             synaptic_transmission_cost += cost
+    #     for param in self.decoder[task_id].parameters():
+    #         if param.requires_grad:
+    #             weight = param.data.detach().cpu().numpy()
+    #             gradient = param.grad.detach().cpu().numpy()
+    #             # Element-wise multiplication of weights and gradients
+    #             cost = np.sum(np.abs(weight) * np.abs(gradient))
+    #             synaptic_transmission_cost += cost
+    #     return synaptic_transmission_cost
 
 
 class SingleTask(EffectPrediction):
@@ -262,11 +262,13 @@ class SingleTask(EffectPrediction):
         num_tasks = config["num_tasks"]
         task_encoders = nn.ModuleList()
         for n in range(num_tasks):
+            state_proj = MLP(layer_info=[config["in_size"][n], config["hidden_dim"]], activation_last=False)
             state_encoder = build_state_encoder(config=config, task_idx=n)
-            action_proj = MLP(layer_info=[config["action_size"][n], config["rep_action"]])
+            action_proj = MLP(layer_info=[config["action_size"][n], config["rep_action"]], activation_last=False)
             attn_layer = MultiHeadAttnLayer(embed_dim=config["rep_state"],
                                             num_heads=config["num_heads"])
-            encoder = nn.Sequential(OrderedDict([("state_encoder", state_encoder),
+            encoder = nn.Sequential(OrderedDict([("state_proj", state_proj),
+                                                 ("state_encoder", state_encoder),
                                                  ("action_proj", action_proj),
                                                  ("attn_layer", attn_layer)]))
             self.num_params[n] += get_parameter_count(encoder)
@@ -281,7 +283,7 @@ class SingleTask(EffectPrediction):
                 layer_info=[config["rep_state"] + config["rep_action"]] +
                            [config["hidden_dim"]] * (config["dec_depth_effect"] - 1) +
                            [config["out_size"][n]],
-                batch_norm=config["batch_norm"])
+                batch_norm=config["batch_norm"], activation_last=False)
             decoder = nn.Sequential(OrderedDict([("effect_decoder", effect_decoder)]))
             self.num_params[n] += get_parameter_count(decoder)
             task_decoders.append(decoder)
@@ -296,7 +298,8 @@ class SingleTask(EffectPrediction):
             self.decoder[task_id].eval()
 
     def loss(self, task_id, state, effect, action):
-        state_code = self.encoder[task_id].state_encoder(state).unsqueeze(0)
+        proj_state = self.encoder[task_id].state_proj(state)
+        state_code = self.encoder[task_id].state_encoder(proj_state).unsqueeze(0)
         keys = state_code.clone()
         values = state_code.clone()
         query = state_code.clone()
@@ -339,10 +342,10 @@ class MultiTask(EffectPrediction):
         attn_layer = MultiHeadAttnLayer(embed_dim=config["rep_state"] + 1,  # +1 for flag
                                         num_heads=config["num_heads"])
         for n in range(num_tasks):
-            state_proj = MLP(layer_info=[config["in_size"][n], int(config["hidden_dim"] * 1.5)])
+            state_proj = MLP(layer_info=[config["in_size"][n], int(config["hidden_dim"] * 1.5)], activation_last=False)
             sub_encoder = MLP(layer_info=[config["hidden_dim"]] * config["enc_depth_sub"] + [config["rep_state"]],
                               batch_norm=config["batch_norm"])
-            action_proj = MLP(layer_info=[config["action_size"][n], config["rep_action"]])
+            action_proj = MLP(layer_info=[config["action_size"][n], config["rep_action"]], activation_last=False)
             encoder_dict = OrderedDict([("state_proj", state_proj),
                                         ("state_encoder", state_encoder),  # shared
                                         ("sub_encoder", sub_encoder),
@@ -361,7 +364,7 @@ class MultiTask(EffectPrediction):
             effect_decoder = MLP(layer_info=[config["rep_state"] + config["rep_action"] + 1] +
                                             [config["hidden_dim"]] * (config["dec_depth_effect"] - 1) +
                                             [config["out_size"][n]],
-                                 batch_norm=config["batch_norm"])
+                                 batch_norm=config["batch_norm"], activation_last=False)
             decoder = nn.Sequential(OrderedDict([("effect_decoder", effect_decoder)]))
             self.num_params[n] += get_parameter_count(decoder)
             task_decoders.append(decoder)
@@ -465,7 +468,7 @@ class MultiTask(EffectPrediction):
 
         if "e" in self.selection_type:
             for t in self.task_ids:
-                self.selection_util.calculate_ep(energy=self.energy_util.train_energy_history[t], index=t)
+                self.selection_util.calculate_ec(energy=self.energy_util.train_energy_history[t], index=t)
             self.selection_util.save_ec()
 
         return self.selection_util.get_winner()

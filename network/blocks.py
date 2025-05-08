@@ -74,7 +74,7 @@ class DenseLayer(torch.nn.Module):
 class MLP(torch.nn.Module):
     """ multi-layer perceptron with batch norm option """
 
-    def __init__(self, layer_info, activation=torch.nn.ReLU(), std=None, batch_norm=False, indrop=None, hiddrop=None):
+    def __init__(self, layer_info, activation=torch.nn.ReLU(), std=None, batch_norm=False, indrop=None, hiddrop=None, activation_last=True):
         super(MLP, self).__init__()
         layers = []
         in_dim = layer_info[0]
@@ -89,6 +89,8 @@ class MLP(torch.nn.Module):
             layers.append(activation)
             in_dim = unit
         layers.append(DenseLayer(in_features=in_dim, out_features=layer_info[-1], batch_norm=False))
+        if activation_last:
+            layers.append(activation)
         self.layers = torch.nn.Sequential(*layers)
 
     def forward(self, x):
@@ -145,8 +147,10 @@ class MultiHeadAttnLayer(torch.nn.Module):
 
 def build_state_encoder(config, shared=False, task_idx=-1):
     if shared:
+        in_dim = int(config["hidden_dim"] * 1.5)
         out_dim = config["hidden_dim"]
     else:
+        in_dim = config["hidden_dim"]
         out_dim = config["rep_state"]
     if "cnn" in config:
         if config["cnn"]:
@@ -169,16 +173,10 @@ def build_state_encoder(config, shared=False, task_idx=-1):
                     out_dim],
                     batch_norm=config["batch_norm"])]
     else:   # not cnn
-        if shared:
-            # there will be a projection layer before this mlp encoder
-            encoder = [MLP(
-                layer_info=[int(config["hidden_dim"] * 1.5)] * config["enc_depth_state"] + [out_dim],
-                batch_norm=config["batch_norm"])]
-        else:
-            encoder = [MLP(
-                layer_info=[config["in_size"][task_idx]] + [config["hidden_dim"]] * config["enc_depth_state"] + [
-                    out_dim],
-                batch_norm=config["batch_norm"])]
+        # there will be a projection layer before this mlp encoder
+        encoder = [MLP(
+            layer_info=[in_dim] * config["enc_depth_state"] + [out_dim],
+            batch_norm=config["batch_norm"])]
 
     encoder = torch.nn.Sequential(*encoder)
     return encoder
